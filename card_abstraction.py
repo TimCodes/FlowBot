@@ -37,11 +37,13 @@ def preflop_class(hole) -> str:
 
 
 class EquityBucketer:
-    def __init__(self, num_buckets: int = 8, samples: int = 50, seed: int = 0):
+    def __init__(self, num_buckets: int = 8, samples: int = 50, seed: int = 0,
+                 cache_limit: int = 2_000_000):
         self.num_buckets = num_buckets
         self.samples = samples
         self.rng = random.Random(seed)
         self.cache: dict[tuple, float] = {}
+        self.cache_limit = cache_limit  # bounds memory on multi-hour runs
 
     def hand_strength(self, hole, board) -> float:
         """Monte Carlo equity of `hole` on `board` vs a random opponent hand."""
@@ -64,6 +66,8 @@ class EquityBucketer:
             elif mine == theirs:
                 score += 0.5
         hs = score / self.samples
+        if len(self.cache) >= self.cache_limit:
+            self.cache.pop(next(iter(self.cache)))  # FIFO eviction
         self.cache[key] = hs
         return hs
 

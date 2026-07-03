@@ -42,6 +42,13 @@ def main():
     bucketer = EquityBucketer(args.buckets, args.samples, args.seed)
     trainer = ESMCCFRTrainer(bucketer, args.seed, state_factory=deal_nlhe)
 
+    def save_checkpoint(policy, iterations_done):
+        with open(args.save, "wb") as f:
+            pickle.dump({"policy": policy,
+                         "buckets": args.buckets,
+                         "samples": args.samples,
+                         "iterations": iterations_done}, f)
+
     print(f"ES-MCCFR blueprint on HUNL (200BB, f/c/h/p/a): "
           f"{args.iterations} iterations, {args.buckets} buckets, "
           f"{args.samples} MC samples", flush=True)
@@ -55,18 +62,14 @@ def main():
                                  seed=i, state_factory=deal_nlhe)
             vs_call = play_match(agent, CallAgent(), args.eval_hands,
                                  seed=i + 1, state_factory=deal_nlhe)
+            save_checkpoint(policy, i)
             elapsed = time.perf_counter() - start
             print(f"iter {i:>7}: {len(trainer.nodes):>7} infosets, "
                   f"EHS cache {len(bucketer.cache):>7}, "
                   f"vs random {mbb(vs_rand, BIG_BLIND):>+8.1f} mbb/hand, "
                   f"vs call {mbb(vs_call, BIG_BLIND):>+8.1f} mbb/hand  "
-                  f"({elapsed:.0f}s)", flush=True)
+                  f"({elapsed:.0f}s, checkpoint saved)", flush=True)
 
-    with open(args.save, "wb") as f:
-        pickle.dump({"policy": trainer.average_policy(),
-                     "buckets": args.buckets,
-                     "samples": args.samples,
-                     "iterations": args.iterations}, f)
     print(f"Blueprint saved to {args.save}", flush=True)
 
 
