@@ -14,6 +14,7 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import os
 import pickle
 import time
 
@@ -37,23 +38,45 @@ def main():
     parser.add_argument("--eval-hands", type=int, default=4000)
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--save", default="hunl_blueprint.pkl")
+    parser.add_argument("--state-file", default="hunl_trainer_state.pkl",
+                        help="full trainer state (regrets) for --resume")
+    parser.add_argument("--resume", action="store_true",
+                        help="continue from --state-file if it exists")
     args = parser.parse_args()
 
     bucketer = EquityBucketer(args.buckets, args.samples, args.seed)
     trainer = ESMCCFRTrainer(bucketer, args.seed, state_factory=deal_nlhe)
 
+    start_iter = 0
+    if args.resume and os.path.exists(args.state_file):
+        with open(args.state_file, "rb") as f:
+            state = pickle.load(f)
+        trainer.nodes = state["nodes"]
+        start_iter = state["iteration"]
+        # Note: the RNG restarts from the seed, so the post-resume sample
+        # sequence differs from an uninterrupted run. Harmless for MCCFR.
+        print(f"Resumed from {args.state_file}: iteration {start_iter:,}, "
+              f"{len(trainer.nodes):,} infosets", flush=True)
+
+    def atomic_dump(obj, path):
+        tmp = path + ".tmp"
+        with open(tmp, "wb") as f:
+            pickle.dump(obj, f, protocol=pickle.HIGHEST_PROTOCOL)
+        os.replace(tmp, path)
+
     def save_checkpoint(policy, iterations_done):
-        with open(args.save, "wb") as f:
-            pickle.dump({"policy": policy,
-                         "buckets": args.buckets,
-                         "samples": args.samples,
-                         "iterations": iterations_done}, f)
+        atomic_dump({"policy": policy,
+                     "buckets": args.buckets,
+                     "samples": args.samples,
+                     "iterations": iterations_done}, args.save)
+        atomic_dump({"nodes": trainer.nodes,
+                     "iteration": iterations_done}, args.state_file)
 
     print(f"ES-MCCFR blueprint on HUNL (200BB, f/c/h/p/a): "
           f"{args.iterations} iterations, {args.buckets} buckets, "
           f"{args.samples} MC samples", flush=True)
     start = time.perf_counter()
-    for i in range(1, args.iterations + 1):
+    for i in range(start_iter + 1, args.iterations + 1):
         trainer.iteration()
         if i % args.eval_every == 0 or i == args.iterations:
             policy = trainer.average_policy()
