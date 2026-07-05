@@ -16,7 +16,22 @@ from __future__ import annotations
 import argparse
 import os
 import pickle
+import sys
 import time
+
+
+def keep_system_awake():
+    """Stop Windows from sleeping while training runs.
+
+    Uses SetThreadExecutionState(ES_CONTINUOUS | ES_SYSTEM_REQUIRED), which
+    is scoped to this process: the OS clears it automatically on exit, so no
+    power settings are permanently changed. The display may still sleep.
+    """
+    if sys.platform == "win32":
+        import ctypes
+        ES_CONTINUOUS, ES_SYSTEM_REQUIRED = 0x80000000, 0x00000001
+        ctypes.windll.kernel32.SetThreadExecutionState(
+            ES_CONTINUOUS | ES_SYSTEM_REQUIRED)
 
 from card_abstraction import EquityBucketer
 from hulhe_mccfr import (CallAgent, ESMCCFRTrainer, PolicyAgent, RandomAgent,
@@ -42,7 +57,12 @@ def main():
                         help="full trainer state (regrets) for --resume")
     parser.add_argument("--resume", action="store_true",
                         help="continue from --state-file if it exists")
+    parser.add_argument("--allow-sleep", action="store_true",
+                        help="do not hold the system awake while training")
     args = parser.parse_args()
+
+    if not args.allow_sleep:
+        keep_system_awake()
 
     bucketer = EquityBucketer(args.buckets, args.samples, args.seed)
     trainer = ESMCCFRTrainer(bucketer, args.seed, state_factory=deal_nlhe)

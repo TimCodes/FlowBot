@@ -21,6 +21,7 @@ Notes for later rungs:
 from __future__ import annotations
 
 import random
+from collections import OrderedDict
 
 from treys import Card
 
@@ -42,7 +43,11 @@ class EquityBucketer:
         self.num_buckets = num_buckets
         self.samples = samples
         self.rng = random.Random(seed)
-        self.cache: dict[tuple, float] = {}
+        # OrderedDict so full-cache eviction is O(1) popitem(last=False).
+        # A plain dict with pop(next(iter(...))) degrades badly: dict
+        # iteration scans past deletion tombstones, so each eviction gets
+        # slower the longer the cache has been at its limit.
+        self.cache: OrderedDict[tuple, float] = OrderedDict()
         self.cache_limit = cache_limit  # bounds memory on multi-hour runs
 
     def hand_strength(self, hole, board) -> float:
@@ -67,7 +72,7 @@ class EquityBucketer:
                 score += 0.5
         hs = score / self.samples
         if len(self.cache) >= self.cache_limit:
-            self.cache.pop(next(iter(self.cache)))  # FIFO eviction
+            self.cache.popitem(last=False)  # O(1) FIFO eviction
         self.cache[key] = hs
         return hs
 
