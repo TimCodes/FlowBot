@@ -12,7 +12,7 @@ verifiable success criterion before moving to the next.
 | 2 | Leduc Hold'em | Tabular CFR / CFR+ / MCCFR (RLCard + OpenSpiel) | ✅ done | Exact exploitability curves via OpenSpiel best response |
 | 3 | Heads-up **limit** Hold'em | External-sampling MCCFR + equity bucketing | ✅ done | Beats baseline agents (mbb/hand); exact exploitability no longer tractable |
 | 4 | Heads-up **no-limit** Hold'em | MCCFR blueprint (f/c/½pot/pot/all-in) + live Slumbot client | ✅ done | **−5.5 mbb/hand vs Slumbot** (1000 hands, 2.5M-iter blueprint); next: 10k+ hands + AIVAT, subgame re-solving |
-| 5 | Novelty | Multiplayer / opponent exploitation / LLM hybrid | ⬜ | Publishable delta |
+| 5 | **6-max** no-limit Hold'em | Pluribus recipe: N-player Linear-MCCFR blueprint + depth-limited search; opponent exploitation | 🟡 research done | Beats agent pool (duplicate-dealt mbb/hand, AIVAT); publishable delta — survey & plan in [research_6max.md](research_6max.md) |
 
 ## Files
 
