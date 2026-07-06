@@ -11,7 +11,7 @@ verifiable success criterion before moving to the next.
 | 1 | Kuhn poker | Vanilla CFR + CFR+ (pure stdlib) | ✅ done | Match analytical equilibrium; NashConv → 0 |
 | 2 | Leduc Hold'em | Tabular CFR / CFR+ / MCCFR (RLCard + OpenSpiel) | ✅ done | Exact exploitability curves via OpenSpiel best response |
 | 3 | Heads-up **limit** Hold'em | External-sampling MCCFR + equity bucketing | ✅ done | Beats baseline agents (mbb/hand); exact exploitability no longer tractable |
-| 4 | Heads-up **no-limit** Hold'em | MCCFR blueprint (f/c/½pot/pot/all-in) + live Slumbot client | 🟡 blueprint done | mbb/hand vs Slumbot; next: 100k+ hands, AIVAT, subgame re-solving |
+| 4 | Heads-up **no-limit** Hold'em | MCCFR blueprint (f/c/½pot/pot/all-in) + live Slumbot client | ✅ done | **−5.5 mbb/hand vs Slumbot** (1000 hands, 2.5M-iter blueprint); next: 10k+ hands + AIVAT, subgame re-solving |
 | 5 | Novelty | Multiplayer / opponent exploitation / LLM hybrid | ⬜ | Publishable delta |
 
 ## Files
@@ -103,9 +103,22 @@ an order of magnitude above the limit game's because pots are 200 BB deep.
 Expected for a 6-minute blueprint: clearly losing to a near-equilibrium bot,
 but far above the ~−50,000 of a random agent (and ~−750 of always-fold).
 100 hands carries ~±1000 mbb/hand noise — treat this as a pipeline test, not
-a measurement. The path to a real number: 10k+ hands, a much bigger blueprint
-(millions of iterations, 50+ buckets, E[HS²]), pseudo-harmonic action
-translation, and depth-limited subgame re-solving.
+a measurement.
+
+## Reference results — big blueprint (2.5M iterations, 12 buckets)
+
+Trained in ~10 h of compute (survived one OS restart via `--resume`; see
+`resume_training.cmd`). 1,455,924 infosets, checkpoint `hunl_blueprint_big.pkl`.
+Vs-baseline margins *declined* over training (+10.6k → +5.3k vs random) —
+the average policy converging toward balanced play, not a regression.
+
+**Slumbot, 1000 hands (2026-07-05): −5.5 mbb/hand** — statistically
+indistinguishable from break-even (±~1500 mbb at this sample size), versus
+−4795 for the 30k-iteration blueprint. Blueprint scale alone closed
+essentially the entire measured gap. Next steps for a publishable number and
+a positive win rate: 10k+ hands with AIVAT variance reduction, E[HS²] /
+potential-aware bucketing, pseudo-harmonic action translation, and
+depth-limited subgame re-solving.
 
 ## Reference results — HULHE ES-MCCFR (30k iterations, 8 buckets, 50 MC samples, seed 0)
 
