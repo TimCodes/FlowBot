@@ -12,7 +12,7 @@ verifiable success criterion before moving to the next.
 | 2 | Leduc Hold'em | Tabular CFR / CFR+ / MCCFR (RLCard + OpenSpiel) | ✅ done | Exact exploitability curves via OpenSpiel best response |
 | 3 | Heads-up **limit** Hold'em | External-sampling MCCFR + equity bucketing | ✅ done | Beats baseline agents (mbb/hand); exact exploitability no longer tractable |
 | 4 | Heads-up **no-limit** Hold'em | MCCFR blueprint (f/c/½pot/pot/all-in) + live Slumbot client | ✅ done | **−5.5 mbb/hand vs Slumbot** (1000 hands, 2.5M-iter blueprint); next: 10k+ hands + AIVAT, subgame re-solving |
-| 5 | **6-max** no-limit Hold'em | Pluribus recipe: N-player Linear-MCCFR blueprint + depth-limited search; opponent exploitation | 🟡 research done | Beats agent pool (duplicate-dealt mbb/hand, AIVAT); publishable delta — survey & plan in [research_6max.md](research_6max.md) |
+| 5 | **6-max** no-limit Hold'em | Pluribus recipe: N-player Linear-MCCFR blueprint + depth-limited search; opponent exploitation | 🟡 blueprint done | Beats agent pool (seat-rotated mbb/hand); next: big run, depth-limited search, AIVAT — survey & plan in [research_6max.md](research_6max.md) |
 
 ## Files
 
@@ -88,6 +88,54 @@ P1 vs bet: folds J, calls Q 0.335 (≈1/3), calls K 1.000
   per decision, and converts the policy's abstract action back to a legal
   `bX` increment. Run: `.venv\Scripts\python slumbot_client.py --hands 100`
 - `test_nlhe.py` (14 tests) + `test_slumbot_client.py` (23 tests, offline).
+
+## Rung 5 files
+
+- `research_6max.md` — survey of the Pluribus recipe, multiplayer CFR
+  theory, open-source landscape, and the 5.1–5.6 roadmap this rung follows.
+- `nlhe6_engine.py` — 3–6 player no-limit engine (blinds 50/100, 200 BB
+  stacks, same f/c/½pot/pot/all-in abstraction). Multiway deltas: a
+  `pending` counter drives betting-round closure (BB option, re-opened
+  action), and `settle()` distributes layered side pots, dead money, and
+  odd chips. Same state API as the heads-up engines plus vector `payoffs()`.
+- `nlhe6_mccfr.py` — Linear external-sampling MCCFR (Pluribus blueprint
+  variant): per-seat traversals with vector payoffs, iteration-weighted
+  (linear) regret/strategy updates, negative-regret pruning with recovery
+  iterations, seat-prefixed infoset keys (seat = position). Includes
+  `PolicyAgent6` and `play_table` (hero rotates through all six seats).
+- `nlhe6_blueprint.py` — trains the 6-max blueprint with resumable atomic
+  checkpoints; equity buckets roll out vs 5 random opponents (`--opponents`),
+  optional E[HS²] bucketing (`--mode ehs2`).
+  Run: `.venv\Scripts\python nlhe6_blueprint.py --iterations 30000`
+- `test_nlhe6.py` — 25 tests: side-pot settlement (layered all-ins, dead
+  money, odd-chip splits), multiway betting flow (BB option, squeeze
+  re-opens action, fold-around, fast-forward runouts), multiway equity
+  sanity (AA ≫ 72o five-way; five-way < heads-up equity), trainer smoke
+  (beats a random table, pruning floor respected), chip conservation.
+  Run: `.venv\Scripts\python -m unittest test_nlhe6 -v`
+
+Evaluation note: there is no 6-max Slumbot, so the metric is mbb/hand vs
+agent pools with the hero rotated through every seat. With 3+ players CFR
+keeps no Nash guarantee (only dominated-strategy elimination), so pool
+results *are* the success criterion, not a proxy for exploitability.
+
+## Reference results — 6-max blueprint (10k iterations, 8 buckets vs-5-opponent EHS, prune after 4k, seed 0)
+
+```
+iter  2500:   441,858 infosets   vs 5 random   +369 mbb/hand   vs 5 call +19930 mbb/hand
+iter  5000:   854,749 infosets   vs 5 random  +5408 mbb/hand   vs 5 call  -2660 mbb/hand
+iter 10000: 1,531,929 infosets   vs 5 random +10440 mbb/hand   vs 5 call   +594 mbb/hand
+```
+
+~5 min wall time; blueprint in `nlhe6_blueprint.pkl`. The 6-max game builds
+infosets ~5x faster than heads-up at equal iterations (six seats × more
+histories) and is far from saturation at 10k. Eval noise is much larger than
+heads-up: 6-way 200 BB pots mean a single all-in swing is ±200,000 mbb, so
+2000-hand evals carry several-thousand-mbb standard error — the vs-call
+wobble at 5k is mostly that, plus a genuinely raise-happy transitional
+policy (against 5 call-stations every bluff is called down). Both pools are
+comfortably beaten by 10k. A serious blueprint needs millions of iterations
+(see the HUNL 2.5M run) plus the rung-5.5 search layer.
 
 ## Reference results — HUNL blueprint (30k iterations, 8 buckets, seed 0)
 

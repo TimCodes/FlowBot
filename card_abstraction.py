@@ -39,9 +39,14 @@ def preflop_class(hole) -> str:
 
 class EquityBucketer:
     def __init__(self, num_buckets: int = 8, samples: int = 50, seed: int = 0,
-                 cache_limit: int = 2_000_000):
+                 cache_limit: int = 2_000_000, num_opponents: int = 1,
+                 mode: str = "ehs"):
+        if mode not in ("ehs", "ehs2"):
+            raise ValueError(f"unknown mode {mode!r}")
         self.num_buckets = num_buckets
         self.samples = samples
+        self.num_opponents = num_opponents  # 5 for 6-max: multiway equities
+        self.mode = mode  # "ehs2": E[HS^2] via two independent opponent draws
         self.rng = random.Random(seed)
         # OrderedDict so full-cache eviction is O(1) popitem(last=False).
         # A plain dict with pop(next(iter(...))) degrades badly: dict
@@ -51,7 +56,20 @@ class EquityBucketer:
         self.cache_limit = cache_limit  # bounds memory on multi-hour runs
 
     def hand_strength(self, hole, board) -> float:
-        """Monte Carlo equity of `hole` on `board` vs a random opponent hand."""
+        """Monte Carlo hand-strength estimate for `hole` on `board`.
+
+        mode="ehs":  equity vs `num_opponents` random hands (win = beat the
+        best of them). Multiway equities compress and re-rank hands, so
+        6-max bucketing must roll out vs 5 opponents.
+
+        mode="ehs2": sqrt of (approximate) E[HS^2] over runouts -- per sampled
+        runout, two independent opponent groups are drawn and the win
+        indicators multiplied, which estimates E[HS^2] up to the small
+        dependence introduced by drawing without replacement. E[HS^2] rewards
+        polarized hands (draws) that plain mean equity conflates with static
+        made hands. The sqrt (RMS) keeps values spread across [0,1] so the
+        same fixed-width binning applies.
+        """
         key = (tuple(sorted(hole)), tuple(sorted(board)))
         cached = self.cache.get(key)
         if cached is not None:
@@ -59,18 +77,32 @@ class EquityBucketer:
         blocked = set(hole) | set(board)
         remaining = [c for c in FULL_DECK if c not in blocked]
         need = 5 - len(board)
+        k = self.num_opponents
+        groups = 2 if self.mode == "ehs2" else 1
         hole_l, board_l = list(hole), list(board)
         score = 0.0
         for _ in range(self.samples):
-            draw = self.rng.sample(remaining, 2 + need)
-            runout = board_l + draw[2:]
+            draw = self.rng.sample(remaining, 2 * k * groups + need)
+            runout = board_l + draw[2 * k * groups:]
             mine = _evaluator.evaluate(hole_l, runout)
-            theirs = _evaluator.evaluate(draw[:2], runout)
-            if mine < theirs:
-                score += 1.0
-            elif mine == theirs:
-                score += 0.5
+            sample_score = 1.0
+            for g in range(groups):
+                base = 2 * k * g
+                theirs = min(
+                    _evaluator.evaluate(draw[base + 2 * i:base + 2 * i + 2],
+                                        runout)
+                    for i in range(k))
+                if mine < theirs:
+                    w = 1.0
+                elif mine == theirs:
+                    w = 0.5
+                else:
+                    w = 0.0
+                sample_score *= w
+            score += sample_score
         hs = score / self.samples
+        if self.mode == "ehs2":
+            hs = hs ** 0.5  # RMS hand strength
         if len(self.cache) >= self.cache_limit:
             self.cache.popitem(last=False)  # O(1) FIFO eviction
         self.cache[key] = hs
