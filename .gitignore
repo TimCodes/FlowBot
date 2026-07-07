@@ -5,3 +5,4 @@ __pycache__/
 leduc_cfr_model/
 *.log
 *.err
+*.jsonl

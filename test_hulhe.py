@@ -129,6 +129,36 @@ class TestAbstraction(unittest.TestCase):
         self.assertEqual(b.hand_strength(h, board), first)
         self.assertEqual(len(b.cache), 1)
 
+    def test_ehs2_ordering_and_range(self):
+        b = EquityBucketer(num_buckets=8, samples=400, seed=3, mode="ehs2")
+        aa = b.hand_strength(cards("As", "Ad"), ())
+        junk = b.hand_strength(cards("7c", "2d"), ())
+        self.assertGreater(aa, junk)
+        self.assertTrue(0.0 <= junk <= aa <= 1.0)
+        # RMS(HS) <= 1 and for AA preflop should still be clearly high.
+        self.assertGreater(aa, 0.75)
+
+    def test_ehs2_royal_flush_tops_bucket(self):
+        b = EquityBucketer(num_buckets=8, samples=200, seed=3, mode="ehs2")
+        label = b.label(cards("As", "Ks"), cards("Qs", "Js", "Ts"), 1)
+        self.assertEqual(label, "1:7")
+
+    def test_ehs2_rewards_polarized_draws(self):
+        # A nut-flush draw with overcards (polarized: often ~0 or ~1 equity
+        # at showdown) should gain more under RMS E[HS^2] than a static
+        # middling made hand of comparable mean equity.
+        b_ehs = EquityBucketer(samples=600, seed=3, mode="ehs")
+        b_hs2 = EquityBucketer(samples=600, seed=3, mode="ehs2")
+        draw = (cards("As", "Ks"), cards("Qs", "7s", "2d"))
+        made = (cards("9c", "9d"), cards("Qs", "7s", "2d"))
+        gain_draw = b_hs2.hand_strength(*draw) - b_ehs.hand_strength(*draw)
+        gain_made = b_hs2.hand_strength(*made) - b_ehs.hand_strength(*made)
+        self.assertGreater(gain_draw, gain_made)
+
+    def test_invalid_mode_rejected(self):
+        with self.assertRaises(ValueError):
+            EquityBucketer(mode="potential")
+
 
 class TestTrainer(unittest.TestCase):
     @classmethod

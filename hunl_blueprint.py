@@ -59,12 +59,15 @@ def main():
                         help="continue from --state-file if it exists")
     parser.add_argument("--allow-sleep", action="store_true",
                         help="do not hold the system awake while training")
+    parser.add_argument("--mode", choices=("ehs", "ehs2"), default="ehs",
+                        help="bucketing metric: mean equity or RMS E[HS^2]")
     args = parser.parse_args()
 
     if not args.allow_sleep:
         keep_system_awake()
 
-    bucketer = EquityBucketer(args.buckets, args.samples, args.seed)
+    bucketer = EquityBucketer(args.buckets, args.samples, args.seed,
+                              mode=args.mode)
     trainer = ESMCCFRTrainer(bucketer, args.seed, state_factory=deal_nlhe)
 
     start_iter = 0
@@ -88,6 +91,7 @@ def main():
         atomic_dump({"policy": policy,
                      "buckets": args.buckets,
                      "samples": args.samples,
+                     "mode": args.mode,
                      "iterations": iterations_done}, args.save)
         atomic_dump({"nodes": trainer.nodes,
                      "iteration": iterations_done}, args.state_file)

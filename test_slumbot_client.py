@@ -11,7 +11,7 @@ import unittest
 
 from nlhe_engine import ALL_IN, CALL, FOLD, HALF_POT, POT, STACK
 from slumbot_client import (abstract_to_incr, classify_bet, parse_action,
-                            replay_abstract)
+                            pseudo_harmonic_prob, replay_abstract)
 
 HOLE = ["As", "Ks"]
 
@@ -104,6 +104,77 @@ class TestAbstractToIncr(unittest.TestCase):
         incr = abstract_to_incr(HALF_POT, p, my_pos=0)
         self.assertTrue(incr.startswith("b"))
         self.assertGreaterEqual(int(incr[1:]), 800)
+
+
+class TestPseudoHarmonic(unittest.TestCase):
+    def test_boundaries(self):
+        self.assertAlmostEqual(pseudo_harmonic_prob(0.5, 1.0, 0.5), 1.0)
+        self.assertAlmostEqual(pseudo_harmonic_prob(0.5, 1.0, 1.0), 0.0)
+
+    def test_known_value_from_paper(self):
+        # A=0.5, B=1, x=0.75 -> (0.25 * 1.5) / (0.5 * 1.75) = 3/7
+        self.assertAlmostEqual(pseudo_harmonic_prob(0.5, 1.0, 0.75), 3 / 7)
+
+    def test_monotone_decreasing_in_x(self):
+        probs = [pseudo_harmonic_prob(0.5, 1.0, x)
+                 for x in (0.55, 0.65, 0.75, 0.85, 0.95)]
+        self.assertEqual(probs, sorted(probs, reverse=True))
+
+    def test_harmonic_mapping_is_deterministic_per_salt(self):
+        args = dict(raise_by=150, pot_after_call=200, bettor_total=400,
+                    harmonic=True)
+        first = classify_bet(**args, salt=17)
+        self.assertTrue(all(classify_bet(**args, salt=17) == first
+                            for _ in range(20)))
+
+    def test_harmonic_frequencies_match_formula(self):
+        # x = 0.75 between half-pot and pot: P(half-pot) should be ~3/7.
+        picks = [classify_bet(150, 200, 400, harmonic=True, salt=s)
+                 for s in range(2000)]
+        frac_half = picks.count(HALF_POT) / len(picks)
+        self.assertAlmostEqual(frac_half, 3 / 7, delta=0.04)
+        self.assertEqual(set(picks), {HALF_POT, POT})
+
+    def test_harmonic_extremes_are_deterministic(self):
+        # At or below the smallest size, and at all-in, no randomization.
+        self.assertEqual(classify_bet(100, 200, 300, harmonic=True), HALF_POT)
+        self.assertEqual(classify_bet(19900, 200, STACK, harmonic=True), ALL_IN)
+
+    def test_naive_mode_unchanged(self):
+        self.assertEqual(classify_bet(100, 200, 300), HALF_POT)
+        self.assertEqual(classify_bet(200, 200, 400), POT)
+        self.assertEqual(classify_bet(600, 200, 800), ALL_IN)
+
+
+class TestAivatLite(unittest.TestCase):
+    def test_allin_call_street_detection(self):
+        self.assertEqual(parse_action("b20000c///")["allin_call_st"], 0)
+        self.assertEqual(parse_action("b200c/b19800c//")["allin_call_st"], 1)
+        self.assertIsNone(parse_action("b200c/kk/kk/kb200")["allin_call_st"])
+        self.assertIsNone(parse_action("f")["allin_call_st"])
+
+    def test_river_allin_has_no_board_luck(self):
+        from aivat_report import allin_luck_chips
+        record = {"action": "b200c/kk/kk/kb19800c", "winnings": 20000,
+                  "hole_cards": ["As", "Ad"], "bot_hole_cards": ["7c", "2d"],
+                  "board": ["Ks", "Qh", "Jd", "8c", "3h"]}
+        self.assertEqual(allin_luck_chips(record), 0.0)
+
+    def test_preflop_allin_suckout_is_negative_luck(self):
+        from aivat_report import allin_luck_chips
+        # AA loses to 72o's full house after a preflop all-in: the realized
+        # -20000 is far below the ~+15200 equity expectation.
+        record = {"action": "b20000c///", "winnings": -20000,
+                  "hole_cards": ["As", "Ad"], "bot_hole_cards": ["7c", "2d"],
+                  "board": ["7h", "7s", "2h", "9c", "9d"]}
+        self.assertLess(allin_luck_chips(record), -30000)
+
+    def test_folded_hand_has_no_allin_luck(self):
+        from aivat_report import allin_luck_chips
+        record = {"action": "b300f", "winnings": 100,
+                  "hole_cards": ["As", "Ad"], "bot_hole_cards": None,
+                  "board": []}
+        self.assertEqual(allin_luck_chips(record), 0.0)
 
 
 class TestReplayAbstract(unittest.TestCase):
