@@ -162,11 +162,33 @@ the average policy converging toward balanced play, not a regression.
 
 **Slumbot, 1000 hands (2026-07-05): −5.5 mbb/hand** — statistically
 indistinguishable from break-even (±~1500 mbb at this sample size), versus
-−4795 for the 30k-iteration blueprint. Blueprint scale alone closed
-essentially the entire measured gap. Next steps for a publishable number and
-a positive win rate: 10k+ hands with AIVAT variance reduction, E[HS²] /
-potential-aware bucketing, pseudo-harmonic action translation, and
-depth-limited subgame re-solving.
+−4795 for the 30k-iteration blueprint.
+
+**Slumbot, 10,000 hands (2026-07-07), blueprint only:**
+
+```
+                              raw:  −332.4 ± 185.7 mbb/hand   (per-hand sd 18,571)
+                  all-in adjusted:  −250.7 ± 157.8 mbb/hand
+AIVAT-lite (all-in + preflop OLS):  −229.8 ± 157.6 mbb/hand
+```
+
+The big sample corrects the 1000-hand illusion: the blueprint alone is
+clearly losing (~−230 luck-adjusted, and it ran ~100 mbb/hand unlucky in
+all-ins). AIVAT-lite (`aivat_report.py`) gives an unbiased 1.4× variance
+cut; the ~10× of full AIVAT needs learned value functions at decision nodes.
+
+## Rung 4 upgrades (commit 1387119)
+
+- **E[HS²] bucketing** (`--mode ehs2`): RMS E[HS²] via a two-opponent
+  product estimator; polarized draws now separate from static made hands.
+  Retrained 2.5M-iteration blueprint: `hunl_blueprint_hs2.pkl`.
+- **Pseudo-harmonic action translation** (`--translation harmonic`):
+  Ganzfried & Sandholm randomized bet mapping, deterministic per bet.
+- **River subgame re-solving** (`--resolve`): blueprint-reach-weighted
+  opponent range + exact ES-CFR solve of each river subgame
+  (`river_resolver.py`); falls back to the blueprint on any error.
+
+10k-hand match of the full upgraded stack vs Slumbot: in progress.
 
 ## Reference results — HULHE ES-MCCFR (30k iterations, 8 buckets, 50 MC samples, seed 0)
 
