@@ -188,7 +188,31 @@ cut; the ~10× of full AIVAT needs learned value functions at decision nodes.
   opponent range + exact ES-CFR solve of each river subgame
   (`river_resolver.py`); falls back to the blueprint on any error.
 
-10k-hand match of the full upgraded stack vs Slumbot: in progress.
+**Slumbot, 10,000 hands (2026-07-08), full upgraded stack** (E[HS²]
+blueprint + harmonic translation + river re-solving):
+
+```
+                              raw:  −152.3 ± 170.8 mbb/hand
+                  all-in adjusted:  −249.0 ± 142.7 mbb/hand
+AIVAT-lite (all-in + preflop OLS):  −214.4 ± 142.5 mbb/hand
+```
+
+**The headline raw improvement (−332 → −152) is mostly all-in luck.**
+Luck-adjusted, the upgraded stack (−214 ± 143) and the baseline
+(−230 ± 158) are statistically indistinguishable — the baseline ran
+~80 mbb unlucky, the upgraded run ~100 mbb lucky, and AIVAT-lite caught
+both. This is precisely the failure mode variance reduction exists to
+expose: without it we'd have claimed a 180-mbb gain.
+
+Interpretation: at this blueprint scale, bucketing quality, action
+translation, and river-only re-solving are not the binding constraints.
+The candidates that remain, in rough order of expected impact: much
+larger blueprints (Slumbot's trained for months; ours for 10 hours),
+finer action abstraction (more bet sizes), re-solving from the flop/turn
+rather than river-only, and safe (gadget-game) re-solving so subgame
+strategies can't be exploited through a weak blueprint's ranges. Proper
+ablations (each upgrade in isolation, 10k hands each) would tell which
+of the three upgrades carries any signal on its own.
 
 ## Reference results — HULHE ES-MCCFR (30k iterations, 8 buckets, 50 MC samples, seed 0)
 
