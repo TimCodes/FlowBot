@@ -9,7 +9,7 @@ from treys import Card
 
 from card_abstraction import EquityBucketer
 from nlhe_engine import ALL_IN, CALL, FOLD, HALF_POT, NLHEState, POT
-from river_resolver import RiverResolver, opponent_range
+from river_resolver import RiverResolver, SubgameResolver, opponent_range
 from slumbot_client import replay_abstract
 
 
@@ -23,6 +23,18 @@ def river_state(hole, board):
     for _ in range(6):  # limp-check, check-check, check-check
         s = s.apply(CALL)
     assert s.street == 3 and s.to_act == 1
+    return s
+
+
+def turn_state(hole, board):
+    """Checked-down state at the start of turn betting (to_act = seat 1).
+
+    board[4] is a placeholder the resolver replaces with sampled rivers.
+    """
+    s = NLHEState((cards(*hole), cards(*hole)), cards(*board))
+    for _ in range(4):  # limp-check, flop check-check
+        s = s.apply(CALL)
+    assert s.street == 2 and s.to_act == 1
     return s
 
 
@@ -108,6 +120,55 @@ class TestRiverResolver(unittest.TestCase):
             s, cards("4h", "3h"), rng)
         self.assertGreater(dist.get(FOLD, 0.0), 0.4)
         self.assertLess(dist.get(CALL, 0.0), 0.4)
+
+
+class TestTurnResolver(unittest.TestCase):
+    # Range built on the 4 revealed cards only; board[4] is a dummy the
+    # resolver never treats as known.
+    TURN_BOARD4 = ("Qs", "Js", "Ts", "2c")
+
+    def test_returns_normalized_distribution_from_turn(self):
+        s = turn_state(("9h", "8h"), self.TURN_BOARD4 + ("2d",))
+        rng = uniform_range(("9h", "8h"), self.TURN_BOARD4)
+        dist = SubgameResolver(iterations=800, seed=1, from_street=2).resolve(
+            s, cards("9h", "8h"), rng)
+        self.assertEqual(set(dist), set(s.legal_actions()))
+        self.assertAlmostEqual(sum(dist.values()), 1.0, places=9)
+        self.assertNotIn(FOLD, dist)
+
+    def test_made_royal_never_folds_turn_bet(self):
+        # Note: vs a single half-pot bet the solver overwhelmingly *calls*
+        # (trapping -- keeping bluffs in for the river), which is sound; the
+        # only watertight assertion here is that it never folds.
+        s = turn_state(("As", "Ks"),
+                       self.TURN_BOARD4 + ("2d",)).apply(HALF_POT)
+        self.assertEqual(s.to_act, 0)  # we face the turn bet
+        rng = uniform_range(("As", "Ks"), self.TURN_BOARD4)
+        dist = SubgameResolver(iterations=3000, seed=1, from_street=2).resolve(
+            s, cards("As", "Ks"), rng)
+        self.assertLess(dist.get(FOLD, 0.0), 0.02)
+
+    def test_made_royal_calls_turn_all_in(self):
+        # Facing an all-in with an unbeatable hand, calling strictly
+        # dominates: the distribution must be essentially pure call.
+        s = turn_state(("As", "Ks"), self.TURN_BOARD4 + ("2d",)).apply(ALL_IN)
+        self.assertEqual(s.legal_actions(), [FOLD, CALL])
+        rng = uniform_range(("As", "Ks"), self.TURN_BOARD4)
+        dist = SubgameResolver(iterations=2000, seed=1, from_street=2).resolve(
+            s, cards("As", "Ks"), rng)
+        self.assertGreater(dist[CALL], 0.95)
+
+    def test_air_facing_turn_bet_mostly_folds(self):
+        s = turn_state(("4h", "3h"),
+                       self.TURN_BOARD4 + ("2d",)).apply(HALF_POT)
+        rng = uniform_range(("4h", "3h"), self.TURN_BOARD4)
+        dist = SubgameResolver(iterations=3000, seed=1, from_street=2).resolve(
+            s, cards("4h", "3h"), rng)
+        self.assertGreater(dist.get(FOLD, 0.0), 0.35)
+
+    def test_river_only_alias_unchanged(self):
+        self.assertIs(RiverResolver, SubgameResolver)
+        self.assertEqual(SubgameResolver().from_street, 3)
 
 
 if __name__ == "__main__":

@@ -344,25 +344,25 @@ class SlumbotSession:
         if response.get("token"):
             self.token = response["token"]
 
-    def _resolve_river(self, shadow, trace, response):
-        """Re-solve the river subgame; None on any failure -> blueprint."""
+    def _resolve_subgame(self, shadow, trace, response):
+        """Re-solve the turn/river subgame; None on any failure -> blueprint."""
         from river_resolver import opponent_range
         try:
             our_hole = tuple(Card.new(c) for c in response["hole_cards"])
             rng = opponent_range(self.agent.policy, self.agent.bucketer,
                                  trace, 1 - shadow.to_act, our_hole,
-                                 shadow.board)
+                                 shadow.board_revealed())
             dist = self.resolver.resolve(shadow, our_hole, rng)
             actions = list(dist)
             choice = self.agent.rng.choices(
                 actions, weights=[dist[a] for a in actions])[0]
             if self.verbose:
                 pretty = {a: round(p, 3) for a, p in dist.items()}
-                print(f"  river resolve: {pretty} -> {choice}")
+                print(f"  street-{shadow.street} resolve: {pretty} -> {choice}")
             return choice
         except Exception as exc:  # live play must not die on a solver bug
             if self.verbose:
-                print(f"  river resolve failed ({exc}); using blueprint")
+                print(f"  resolve failed ({exc}); using blueprint")
             return None
 
     def play_hand(self) -> int:
@@ -385,8 +385,9 @@ class SlumbotSession:
                 incr = "c" if parsed["last_bettor"] not in (-1, my_pos) else "k"
             else:
                 abstract = None
-                if self.resolver is not None and shadow.street == 3:
-                    abstract = self._resolve_river(shadow, trace, r)
+                if (self.resolver is not None
+                        and shadow.street >= self.resolver.from_street):
+                    abstract = self._resolve_subgame(shadow, trace, r)
                 if abstract is None:
                     abstract = self.agent.act(shadow)
                 incr = abstract_to_incr(abstract, parsed, my_pos)
@@ -420,9 +421,11 @@ def main():
                         help="opponent bet-size mapping: legacy thresholds "
                              "or pseudo-harmonic (Ganzfried & Sandholm)")
     parser.add_argument("--resolve", action="store_true",
-                        help="re-solve river subgames instead of playing "
-                             "the blueprint on the river")
+                        help="re-solve late-street subgames instead of "
+                             "playing the blueprint there")
     parser.add_argument("--resolve-iters", type=int, default=2000)
+    parser.add_argument("--resolve-from", type=int, choices=(2, 3), default=3,
+                        help="first street to re-solve: 2 = turn, 3 = river")
     args = parser.parse_args()
 
     keep_system_awake()
@@ -434,8 +437,9 @@ def main():
     agent = PolicyAgent(saved["policy"], bucketer, seed=args.seed)
     resolver = None
     if args.resolve:
-        from river_resolver import RiverResolver
-        resolver = RiverResolver(args.resolve_iters, args.seed)
+        from river_resolver import SubgameResolver
+        resolver = SubgameResolver(args.resolve_iters, args.seed,
+                                   from_street=args.resolve_from)
     session = SlumbotSession(agent, verbose=args.verbose,
                              harmonic=args.translation == "harmonic",
                              resolver=resolver)
