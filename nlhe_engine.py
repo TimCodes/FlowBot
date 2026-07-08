@@ -29,12 +29,18 @@ from __future__ import annotations
 from holdem_engine import BOARD_N, SHOWDOWN, _evaluator
 
 FOLD, CALL, HALF_POT, POT, ALL_IN = "f", "c", "h", "p", "a"
+DOUBLE_POT = "d"  # only in the extended profile (NLHEStateX)
 
 SMALL_BLIND, BIG_BLIND = 50, 100
 STACK = 20_000
 
 
 class NLHEState:
+    # (letter, pot fraction) raise sizes, ordered small to large; ALL_IN is
+    # always appended. Subclasses override to change the action profile --
+    # policies are only compatible with the profile they were trained on.
+    RAISE_LADDER = ((HALF_POT, 0.5), (POT, 1.0))
+
     __slots__ = ("holes", "board", "street", "hists", "acts", "contrib",
                  "to_act", "folded", "last_raise")
 
@@ -50,7 +56,7 @@ class NLHEState:
         self.last_raise = BIG_BLIND  # preflop min-raise is one big blind
 
     def _clone(self) -> "NLHEState":
-        s = object.__new__(NLHEState)
+        s = object.__new__(type(self))
         s.holes = self.holes
         s.board = self.board
         s.street = self.street
@@ -73,15 +79,12 @@ class NLHEState:
 
     def raise_to_amount(self, action: str) -> int:
         """Total contribution a raise action would put the actor at."""
+        if action == ALL_IN:
+            return STACK
         me, opp = self.to_act, 1 - self.to_act
         to_call = self.contrib[opp] - self.contrib[me]
         pot_after_call = self.contrib[me] + self.contrib[opp] + to_call
-        if action == HALF_POT:
-            raise_by = pot_after_call // 2
-        elif action == POT:
-            raise_by = pot_after_call
-        else:  # ALL_IN
-            return STACK
+        raise_by = int(pot_after_call * dict(self.RAISE_LADDER)[action])
         return min(STACK, self.contrib[opp] + raise_by)
 
     def legal_actions(self):
@@ -92,7 +95,8 @@ class NLHEState:
             return actions  # facing (or committed) all-in: fold/call only
         min_raise_to = self.contrib[opp] + max(self.last_raise, BIG_BLIND)
         seen = set()
-        for a in (HALF_POT, POT, ALL_IN):
+        ladder = tuple(letter for letter, _ in self.RAISE_LADDER) + (ALL_IN,)
+        for a in ladder:
             amount = self.raise_to_amount(a)
             if amount >= STACK:
                 a, amount = ALL_IN, STACK
@@ -153,3 +157,19 @@ class NLHEState:
         assert self.is_terminal()
         p0 = self._payoff0()
         return p0 if player == 0 else -p0
+
+
+class NLHEStateX(NLHEState):
+    """Extended action profile: adds a 2x-pot overbet ('d').
+
+    Policies trained on one profile are incompatible with the other (the
+    legal-action lists differ), so blueprint pickles record which profile
+    they were trained with ("actions": "std" | "ext").
+    """
+
+    RAISE_LADDER = ((HALF_POT, 0.5), (POT, 1.0), (DOUBLE_POT, 2.0))
+
+    __slots__ = ()
+
+
+ACTION_PROFILES = {"std": NLHEState, "ext": NLHEStateX}

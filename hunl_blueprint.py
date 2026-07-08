@@ -36,11 +36,11 @@ def keep_system_awake():
 from card_abstraction import EquityBucketer
 from hulhe_mccfr import (CallAgent, ESMCCFRTrainer, PolicyAgent, RandomAgent,
                          mbb, play_match)
-from nlhe_engine import BIG_BLIND, NLHEState
+from nlhe_engine import ACTION_PROFILES, BIG_BLIND, NLHEState
 
 
-def deal_nlhe(cards):
-    return NLHEState((tuple(cards[0:2]), tuple(cards[2:4])), tuple(cards[4:9]))
+def deal_nlhe(cards, state_cls=NLHEState):
+    return state_cls((tuple(cards[0:2]), tuple(cards[2:4])), tuple(cards[4:9]))
 
 
 def main():
@@ -61,14 +61,23 @@ def main():
                         help="do not hold the system awake while training")
     parser.add_argument("--mode", choices=("ehs", "ehs2"), default="ehs",
                         help="bucketing metric: mean equity or RMS E[HS^2]")
+    parser.add_argument("--actions", choices=tuple(ACTION_PROFILES),
+                        default="std",
+                        help="action profile: std = f/c/h/p/a, "
+                             "ext adds a 2x-pot overbet")
     args = parser.parse_args()
 
     if not args.allow_sleep:
         keep_system_awake()
 
+    state_cls = ACTION_PROFILES[args.actions]
+
+    def factory(cards):
+        return deal_nlhe(cards, state_cls)
+
     bucketer = EquityBucketer(args.buckets, args.samples, args.seed,
                               mode=args.mode)
-    trainer = ESMCCFRTrainer(bucketer, args.seed, state_factory=deal_nlhe)
+    trainer = ESMCCFRTrainer(bucketer, args.seed, state_factory=factory)
 
     start_iter = 0
     if args.resume and os.path.exists(args.state_file):
@@ -92,11 +101,14 @@ def main():
                      "buckets": args.buckets,
                      "samples": args.samples,
                      "mode": args.mode,
+                     "actions": args.actions,
                      "iterations": iterations_done}, args.save)
         atomic_dump({"nodes": trainer.nodes,
                      "iteration": iterations_done}, args.state_file)
 
-    print(f"ES-MCCFR blueprint on HUNL (200BB, f/c/h/p/a): "
+    ladder = "/".join(["f", "c"] + [l for l, _ in state_cls.RAISE_LADDER]
+                      + ["a"])
+    print(f"ES-MCCFR blueprint on HUNL (200BB, {ladder}, {args.mode}): "
           f"{args.iterations} iterations, {args.buckets} buckets, "
           f"{args.samples} MC samples", flush=True)
     start = time.perf_counter()
@@ -106,9 +118,9 @@ def main():
             policy = trainer.average_policy()
             agent = PolicyAgent(policy, bucketer, seed=i)
             vs_rand = play_match(agent, RandomAgent(seed=i), args.eval_hands,
-                                 seed=i, state_factory=deal_nlhe)
+                                 seed=i, state_factory=factory)
             vs_call = play_match(agent, CallAgent(), args.eval_hands,
-                                 seed=i + 1, state_factory=deal_nlhe)
+                                 seed=i + 1, state_factory=factory)
             save_checkpoint(policy, i)
             elapsed = time.perf_counter() - start
             print(f"iter {i:>7}: {len(trainer.nodes):>7} infosets, "

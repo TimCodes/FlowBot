@@ -10,8 +10,8 @@ from treys import Card
 from card_abstraction import EquityBucketer
 from hulhe_mccfr import ESMCCFRTrainer, PolicyAgent, RandomAgent, play_match
 from hunl_blueprint import deal_nlhe
-from nlhe_engine import (ALL_IN, BIG_BLIND, CALL, FOLD, HALF_POT, NLHEState,
-                         POT, SMALL_BLIND, STACK)
+from nlhe_engine import (ALL_IN, BIG_BLIND, CALL, DOUBLE_POT, FOLD, HALF_POT,
+                         NLHEState, NLHEStateX, POT, SMALL_BLIND, STACK)
 
 
 def cards(*names):
@@ -96,6 +96,48 @@ class TestNLHEEngine(unittest.TestCase):
     def test_history_string(self):
         s = make_state().apply(POT).apply(CALL).apply(HALF_POT).apply(FOLD)
         self.assertEqual(s.history_str(), "pc/hf")
+
+
+class TestExtendedProfile(unittest.TestCase):
+    def make_x(self):
+        return NLHEStateX((cards("As", "Ad"), cards("7c", "2d")),
+                          cards("Ks", "Qh", "Jd", "8c", "3h"))
+
+    def test_preflop_actions_include_overbet(self):
+        s = self.make_x()
+        self.assertEqual(s.legal_actions(),
+                         [FOLD, CALL, HALF_POT, POT, DOUBLE_POT, ALL_IN])
+        # Pot after call = 200: 2x-pot raise -> to 100 + 400 = 500 (5x open).
+        self.assertEqual(s.raise_to_amount(DOUBLE_POT), 500)
+
+    def test_std_profile_unchanged_by_subclass(self):
+        s = NLHEState((cards("As", "Ad"), cards("7c", "2d")),
+                      cards("Ks", "Qh", "Jd", "8c", "3h"))
+        self.assertNotIn(DOUBLE_POT, s.legal_actions())
+
+    def test_clone_preserves_profile(self):
+        s = self.make_x().apply(DOUBLE_POT)
+        self.assertIsInstance(s, NLHEStateX)
+        self.assertEqual(s.contrib, [500, 100])
+        self.assertEqual(s.history_str(), "d")
+        self.assertIn(DOUBLE_POT, s.apply(CALL).legal_actions())
+
+    def test_overbet_collapses_to_all_in_near_stack(self):
+        s = self.make_x()
+        for _ in range(3):  # overbet war: 500 -> 2900 -> 14900 -> cap
+            if DOUBLE_POT in s.legal_actions():
+                s = s.apply(DOUBLE_POT)
+        for a in s.legal_actions():
+            if a not in (FOLD, CALL, ALL_IN):
+                self.assertLess(s.raise_to_amount(a), STACK)
+
+    def test_payoffs_identical_across_profiles(self):
+        for cls in (NLHEState, NLHEStateX):
+            s = cls((cards("As", "Ad"), cards("7c", "2d")),
+                    cards("Ks", "Qh", "Jd", "8c", "3h"))
+            for _ in range(8):
+                s = s.apply(CALL)
+            self.assertEqual(s.utility(0), BIG_BLIND)
 
 
 class TestBlueprintTrainer(unittest.TestCase):

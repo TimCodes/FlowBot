@@ -40,8 +40,8 @@ from treys import Card
 from card_abstraction import EquityBucketer
 from hulhe_mccfr import PolicyAgent
 from hunl_blueprint import keep_system_awake
-from nlhe_engine import (ALL_IN, BIG_BLIND, CALL, FOLD, HALF_POT, NLHEState,
-                         POT, SMALL_BLIND, STACK)
+from nlhe_engine import (ACTION_PROFILES, ALL_IN, BIG_BLIND, CALL, FOLD,
+                         HALF_POT, NLHEState, POT, SMALL_BLIND, STACK)
 
 HOST = "slumbot.com"
 NUM_STREETS = 4
@@ -151,42 +151,45 @@ def pseudo_harmonic_prob(a: float, b: float, x: float) -> float:
 
 
 def classify_bet(raise_by: int, pot_after_call: int, bettor_total: int,
-                 harmonic: bool = False, salt: int = 0) -> str:
+                 harmonic: bool = False, salt: int = 0,
+                 ladder: tuple = NLHEState.RAISE_LADDER) -> str:
     """Map a real bet to an abstract action by pot ratio.
 
-    harmonic=False: legacy nearest-threshold mapping (baseline behaviour).
-    harmonic=True: pseudo-harmonic randomized mapping; `salt` keeps the
-    draw deterministic per bet so replays within a hand stay consistent.
+    harmonic=False with the standard 2-size ladder: legacy nearest-threshold
+    mapping (baseline behaviour). Otherwise pseudo-harmonic randomized
+    mapping over the (letter, fraction) `ladder` plus all-in; `salt` keeps
+    the draw deterministic per bet so replays within a hand stay consistent.
     """
     if bettor_total >= STACK:
         return ALL_IN
     pot = max(pot_after_call, 1)
     x = raise_by / pot
-    if not harmonic:
+    if not harmonic and ladder == NLHEState.RAISE_LADDER:
         if x < 0.75:
             return HALF_POT
         if x < 1.5:
             return POT
         return ALL_IN
     allin_x = (raise_by + STACK - bettor_total) / pot
-    if x <= 0.5:
-        return HALF_POT
+    rungs = [r for r in ladder if r[1] < allin_x] + [(ALL_IN, allin_x)]
+    if x <= rungs[0][1]:
+        return rungs[0][0]
     if x >= allin_x:
         return ALL_IN
-    if x < 1.0:
-        low, high, a, b = HALF_POT, POT, 0.5, 1.0
-    else:
-        low, high, a, b = POT, ALL_IN, 1.0, allin_x
-    if b <= a:  # degenerate bracket (tiny remaining stack)
-        return low
-    p_low = pseudo_harmonic_prob(a, b, x)
-    u = random.Random(f"{salt}:{x:.6f}").random()
-    return low if u < p_low else high
+    for (low, a), (high, b) in zip(rungs, rungs[1:]):
+        if a <= x < b:
+            if b <= a:  # degenerate bracket (tiny remaining stack)
+                return low
+            p_low = pseudo_harmonic_prob(a, b, x)
+            u = random.Random(f"{salt}:{x:.6f}").random()
+            return low if u < p_low else high
+    return ALL_IN
 
 
 def replay_abstract(action: str, hole_cards, board_cards,
                     harmonic: bool = False,
-                    trace_out: list | None = None) -> NLHEState | None:
+                    trace_out: list | None = None,
+                    state_cls: type = NLHEState) -> NLHEState | None:
     """Rebuild the shadow abstract state matching a real action string.
 
     Our seat in the shadow game is derived per real action from Slumbot
@@ -212,7 +215,7 @@ def replay_abstract(action: str, hole_cards, board_cards,
     # Shadow state: seat 0 = small blind. We don't know which Slumbot pos we
     # are here; infoset_key only reads state.holes[state.to_act], so we give
     # BOTH shadow seats our hole cards. Only the acting player's view is read.
-    shadow = NLHEState((hole, hole), board)
+    shadow = state_cls((hole, hole), board)
     i, sz = 0, len(action)
     while i < sz and not shadow.is_terminal():
         c = action[i]
@@ -240,12 +243,13 @@ def replay_abstract(action: str, hole_cards, board_cards,
             # salt = char index of this bet: the same bet maps to the same
             # abstract size every time the growing action string is replayed.
             abstract = classify_bet(raise_by, pot_after_call, tot_contrib[pos],
-                                    harmonic=harmonic, salt=j)
+                                    harmonic=harmonic, salt=j,
+                                    ladder=state_cls.RAISE_LADDER)
         else:
             return None
         # Apply with legality fallback (abstraction may prune sizes).
         legal = shadow.legal_actions()
-        for candidate in _fallback_chain(abstract):
+        for candidate in _fallback_chain(abstract, state_cls.RAISE_LADDER):
             if candidate in legal:
                 if trace_out is not None:
                     trace_out.append((shadow.to_act, shadow.street,
@@ -265,12 +269,18 @@ def replay_abstract(action: str, hole_cards, board_cards,
     return shadow
 
 
-def _fallback_chain(abstract: str):
-    chains = {FOLD: (FOLD, CALL), CALL: (CALL,),
-              HALF_POT: (HALF_POT, POT, ALL_IN, CALL),
-              POT: (POT, HALF_POT, ALL_IN, CALL),
-              ALL_IN: (ALL_IN, POT, HALF_POT, CALL)}
-    return chains[abstract]
+def _fallback_chain(abstract: str, ladder: tuple = NLHEState.RAISE_LADDER):
+    """Substitution order when the desired action is pruned: nearest raise
+    sizes first (all-in counts as the largest), then check/call."""
+    if abstract == FOLD:
+        return (FOLD, CALL)
+    if abstract == CALL:
+        return (CALL,)
+    fracs = dict(ladder)
+    fracs[ALL_IN] = 200.0  # effectively infinite pot fraction
+    others = sorted((a for a in fracs if a != abstract),
+                    key=lambda a: abs(fracs[a] - fracs[abstract]))
+    return (abstract, *others, CALL)
 
 
 def _full_deck():
@@ -278,7 +288,8 @@ def _full_deck():
     return FULL_DECK
 
 
-def abstract_to_incr(abstract: str, parsed: dict, my_pos: int) -> str:
+def abstract_to_incr(abstract: str, parsed: dict, my_pos: int,
+                     ladder: tuple = NLHEState.RAISE_LADDER) -> str:
     """Convert our abstract action into a legal Slumbot incremental action."""
     facing = parsed["last_bettor"] not in (-1, my_pos)
     if abstract == FOLD:
@@ -294,10 +305,9 @@ def abstract_to_incr(abstract: str, parsed: dict, my_pos: int) -> str:
     pot_after_call = my_total + opp_total + to_call
     remaining = STACK - my_total
 
-    if abstract == HALF_POT:
-        raise_by = pot_after_call // 2
-    elif abstract == POT:
-        raise_by = pot_after_call
+    fractions = dict(ladder)
+    if abstract in fractions:
+        raise_by = int(pot_after_call * fractions[abstract])
     else:
         raise_by = remaining  # all-in
 
@@ -333,12 +343,13 @@ def _post(endpoint: str, data: dict, retries: int = 3) -> dict:
 class SlumbotSession:
     def __init__(self, agent: PolicyAgent, token: str | None = None,
                  verbose: bool = False, harmonic: bool = False,
-                 resolver=None):
+                 resolver=None, state_cls: type = NLHEState):
         self.agent = agent
         self.token = token
         self.verbose = verbose
         self.harmonic = harmonic
-        self.resolver = resolver  # river_resolver.RiverResolver or None
+        self.resolver = resolver  # river_resolver.SubgameResolver or None
+        self.state_cls = state_cls  # action profile the policy was trained on
 
     def _refresh_token(self, response: dict):
         if response.get("token"):
@@ -380,7 +391,8 @@ class SlumbotSession:
             my_pos = r.get("client_pos", my_pos)
             trace = [] if self.resolver else None
             shadow = replay_abstract(action, r["hole_cards"], r["board"],
-                                     harmonic=self.harmonic, trace_out=trace)
+                                     harmonic=self.harmonic, trace_out=trace,
+                                     state_cls=self.state_cls)
             if shadow is None or shadow.is_terminal():
                 incr = "c" if parsed["last_bettor"] not in (-1, my_pos) else "k"
             else:
@@ -390,7 +402,8 @@ class SlumbotSession:
                     abstract = self._resolve_subgame(shadow, trace, r)
                 if abstract is None:
                     abstract = self.agent.act(shadow)
-                incr = abstract_to_incr(abstract, parsed, my_pos)
+                incr = abstract_to_incr(abstract, parsed, my_pos,
+                                        ladder=self.state_cls.RAISE_LADDER)
             if self.verbose:
                 print(f"  action={action!r} hole={r['hole_cards']} "
                       f"board={r['board']} -> {incr}")
@@ -440,9 +453,10 @@ def main():
         from river_resolver import SubgameResolver
         resolver = SubgameResolver(args.resolve_iters, args.seed,
                                    from_street=args.resolve_from)
+    state_cls = ACTION_PROFILES[saved.get("actions", "std")]
     session = SlumbotSession(agent, verbose=args.verbose,
                              harmonic=args.translation == "harmonic",
-                             resolver=resolver)
+                             resolver=resolver, state_cls=state_cls)
 
     total, done = 0, 0
     if args.log_jsonl and os.path.exists(args.log_jsonl):

@@ -145,6 +145,33 @@ class TestPseudoHarmonic(unittest.TestCase):
         self.assertEqual(classify_bet(200, 200, 400), POT)
         self.assertEqual(classify_bet(600, 200, 800), ALL_IN)
 
+    def test_extended_ladder_maps_overbets_to_d(self):
+        from nlhe_engine import DOUBLE_POT, NLHEStateX
+        ladder = NLHEStateX.RAISE_LADDER
+        # A 2x-pot bet lands exactly on 'd' regardless of salt.
+        picks = {classify_bet(400, 200, 600, harmonic=True, salt=s,
+                              ladder=ladder) for s in range(50)}
+        self.assertEqual(picks, {DOUBLE_POT})
+        # A 1.5x-pot bet mixes between pot and double-pot only.
+        picks = {classify_bet(300, 200, 500, harmonic=True, salt=s,
+                              ladder=ladder) for s in range(200)}
+        self.assertEqual(picks, {POT, DOUBLE_POT})
+
+    def test_extended_incr_translation(self):
+        from nlhe_engine import DOUBLE_POT, NLHEStateX
+        p = parse_action("")
+        incr = abstract_to_incr(DOUBLE_POT, p, my_pos=1,
+                                ladder=NLHEStateX.RAISE_LADDER)
+        self.assertEqual(incr, "b500")  # pot-after-call 200, raise by 400
+
+    def test_extended_fallback_chain_orders_by_size(self):
+        from nlhe_engine import DOUBLE_POT, NLHEStateX
+        from slumbot_client import _fallback_chain
+        chain = _fallback_chain(DOUBLE_POT, NLHEStateX.RAISE_LADDER)
+        self.assertEqual(chain[0], DOUBLE_POT)
+        self.assertEqual(chain[-1], CALL)
+        self.assertLess(chain.index(POT), chain.index(HALF_POT))
+
 
 class TestAivatLite(unittest.TestCase):
     def test_allin_call_street_detection(self):
