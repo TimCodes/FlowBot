@@ -210,9 +210,30 @@ The candidates that remain, in rough order of expected impact: much
 larger blueprints (Slumbot's trained for months; ours for 10 hours),
 finer action abstraction (more bet sizes), re-solving from the flop/turn
 rather than river-only, and safe (gadget-game) re-solving so subgame
-strategies can't be exploited through a weak blueprint's ranges. Proper
-ablations (each upgrade in isolation, 10k hands each) would tell which
-of the three upgrades carries any signal on its own.
+strategies can't be exploited through a weak blueprint's ranges.
+
+## Per-upgrade ablations (2026-07-08/09, 10,000 hands each, AIVAT-lite)
+
+Each upgrade measured in isolation via `run_ablations.py` (one Slumbot
+session at a time, resumable), all figures luck-adjusted mbb/hand:
+
+| Configuration | AIVAT-lite | vs baseline |
+|---|---|---|
+| baseline (std blueprint, naive, no re-solve) | −230 ± 158 | — |
+| E[HS²] only | −260 ± 149 | flat |
+| pseudo-harmonic only | −445 ± 144 | ~1.4σ **worse** |
+| river re-solving only | **−157 ± 154** | best, ~0.3σ better |
+| all three combined | −214 ± 143 | flat |
+
+Nothing is individually significant at 10k hands (per-component SE ≈ 150,
+so a real effect needs to clear ~300 mbb). But the *directions* are
+consistent and informative: river re-solving is the only component that
+leans positive, and it drives the combined stack; harmonic translation
+alone leans clearly negative — plausible, since randomizing bet mapping
+without a re-solve behind it just adds off-tree exposure the blueprint
+can't defend. E[HS²] is a wash. Takeaway: re-solving is the lever with
+signal; the next test is whether a richer action set and a bigger
+blueprint move the floor (see below).
 
 ## Reference results — HULHE ES-MCCFR (30k iterations, 8 buckets, 50 MC samples, seed 0)
 
