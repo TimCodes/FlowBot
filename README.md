@@ -235,6 +235,31 @@ can't defend. E[HS²] is a wash. Takeaway: re-solving is the lever with
 signal; the next test is whether a richer action set and a bigger
 blueprint move the floor (see below).
 
+## Extended action set + bigger blueprint (2026-07-09/10)
+
+`NLHEStateX` adds a 2×-pot overbet (`--actions ext`), roughly doubling the
+abstract game. Retrained for **5M iterations** (2× the earlier runs):
+`hunl_blueprint_ext.pkl`, 3.0M infosets, E[HS²] buckets. 10,000-hand
+Slumbot match:
+
+```
+                              raw:  −263.7 ± 177.9 mbb/hand
+                  all-in adjusted:  −141.4 ± 154.8 mbb/hand
+AIVAT-lite (all-in + preflop OLS):  −119.4 ± 154.6 mbb/hand
+```
+
+**Best luck-adjusted result to date** — the first configuration clearly
+on the better side of −150. Against the E[HS²]-only ablation (−260, same
+buckets, std actions, 2.5M iters) it is +141 mbb better; against the
+baseline (−230) it is +111 better. Both comparisons point the same way,
+though at ~0.5–0.7σ neither is significant on its own. Honest confound:
+this run changed *two* things at once — the overbet action **and** 5M vs
+2.5M iterations — so it cannot separate "richer actions" from "more
+training." What it does establish: action richness + blueprint scale is
+the direction that moves the floor, matching the ablation verdict that
+bucketing and translation don't. Next: stack the two positive levers
+(ext blueprint + river re-solving) in one match.
+
 ## Reference results — HULHE ES-MCCFR (30k iterations, 8 buckets, 50 MC samples, seed 0)
 
 ```
