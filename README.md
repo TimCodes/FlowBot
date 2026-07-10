@@ -257,8 +257,40 @@ this run changed *two* things at once — the overbet action **and** 5M vs
 2.5M iterations — so it cannot separate "richer actions" from "more
 training." What it does establish: action richness + blueprint scale is
 the direction that moves the floor, matching the ablation verdict that
-bucketing and translation don't. Next: stack the two positive levers
-(ext blueprint + river re-solving) in one match.
+bucketing and translation don't.
+
+## Capstone attempt: ext blueprint + river re-solving — regressed (2026-07-10)
+
+Stacking the two positive-signal levers **failed**, and clearly. Stopped
+at 5,023 hands once the trend was unambiguous:
+
+```
+                              raw:  −701.9 ± 245.3 mbb/hand
+AIVAT-lite (all-in + preflop OLS):  −776.6 ± 196.4 mbb/hand
+```
+
+This is a genuine regression, not variance: luck adjustment made it
+*worse* (−777 vs −702 raw), so the agent was mildly lucky in all-ins
+while still losing −777 of pure skill; and it is 2.6σ below the ext-only
+run (−119 ± 155). The OLS beta also collapsed (302 vs the usual ~600),
+meaning outcomes decoupled from starting-hand quality — bad postflop
+decisions, not bad deals.
+
+Mechanism (from `--verbose` traces): the resolver's *distributions* look
+reasonable (DOUBLE_POT gets 5–10% weight), but it does an **unsafe**
+re-solve — it trusts the blueprint's model of Slumbot's range. On the ext
+profile its action set includes the 2×-pot overbet, so it occasionally
+fires large mismodeled bets (e.g. b800 with a marginal two pair) that
+Slumbot, being outside our abstraction, punishes. River-resolve on the
+*std* blueprint was safe from this (−157, its best ablation) because its
+largest river bet was pot-sized. So the regression is the interaction of
+unsafe re-solving × a large-bet action — a concrete instance of the
+"safe re-solving needed" caveat. Fix under test: cap the resolver's own
+river bets at pot (`--resolve-cap-pot`), keeping the ext blueprint for
+the pre-river streets where it earns its −119.
+
+**Best validated configuration to date: the ext blueprint alone, −119
+mbb/hand luck-adjusted.**
 
 ## Reference results — HULHE ES-MCCFR (30k iterations, 8 buckets, 50 MC samples, seed 0)
 

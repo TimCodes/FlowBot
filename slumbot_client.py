@@ -439,6 +439,9 @@ def main():
     parser.add_argument("--resolve-iters", type=int, default=2000)
     parser.add_argument("--resolve-from", type=int, choices=(2, 3), default=3,
                         help="first street to re-solve: 2 = turn, 3 = river")
+    parser.add_argument("--resolve-cap-pot", action="store_true",
+                        help="forbid the resolver's own overbets (safer with "
+                             "an ext blueprint vs an out-of-model opponent)")
     args = parser.parse_args()
 
     keep_system_awake()
@@ -452,7 +455,8 @@ def main():
     if args.resolve:
         from river_resolver import SubgameResolver
         resolver = SubgameResolver(args.resolve_iters, args.seed,
-                                   from_street=args.resolve_from)
+                                   from_street=args.resolve_from,
+                                   cap_pot=args.resolve_cap_pot)
     state_cls = ACTION_PROFILES[saved.get("actions", "std")]
     session = SlumbotSession(agent, verbose=args.verbose,
                              harmonic=args.translation == "harmonic",

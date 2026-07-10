@@ -171,5 +171,39 @@ class TestTurnResolver(unittest.TestCase):
         self.assertEqual(SubgameResolver().from_street, 3)
 
 
+class TestResolverPotCap(unittest.TestCase):
+    NUTS_BOARD = ("Qs", "Js", "Ts", "2c", "2d")
+
+    def _ext_river(self, hole):
+        from nlhe_engine import NLHEStateX
+        s = NLHEStateX((cards(*hole), cards(*hole)), cards(*self.NUTS_BOARD))
+        for _ in range(6):
+            s = s.apply(CALL)
+        assert s.street == 3 and s.to_act == 1
+        return s
+
+    def test_ext_river_offers_overbet_without_cap(self):
+        from nlhe_engine import DOUBLE_POT
+        s = self._ext_river(("As", "Ks"))
+        self.assertIn(DOUBLE_POT, s.legal_actions())
+
+    def test_capped_resolver_never_returns_overbet(self):
+        from nlhe_engine import DOUBLE_POT
+        s = self._ext_river(("As", "Ks"))
+        rng = uniform_range(("As", "Ks"), self.NUTS_BOARD[:4])
+        dist = SubgameResolver(iterations=800, seed=1, cap_pot=True).resolve(
+            s, cards("As", "Ks"), rng)
+        self.assertNotIn(DOUBLE_POT, dist)
+        self.assertAlmostEqual(sum(dist.values()), 1.0, places=9)
+
+    def test_uncapped_resolver_includes_overbet_action(self):
+        from nlhe_engine import DOUBLE_POT
+        s = self._ext_river(("As", "Ks"))
+        rng = uniform_range(("As", "Ks"), self.NUTS_BOARD[:4])
+        dist = SubgameResolver(iterations=800, seed=1, cap_pot=False).resolve(
+            s, cards("As", "Ks"), rng)
+        self.assertIn(DOUBLE_POT, dist)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

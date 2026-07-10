@@ -28,6 +28,7 @@ import random
 
 from holdem_engine import BOARD_N, FULL_DECK, _evaluator
 from hulhe_mccfr import regret_matching
+from nlhe_engine import DOUBLE_POT
 
 OPP_BUCKETS = 10
 TURN_SCORE_RIVERS = 10  # shared river sample for turn-strength ranking
@@ -70,10 +71,16 @@ def opponent_range(policy, bucketer, trace, opp_seat, our_hole, board):
 
 class SubgameResolver:
     def __init__(self, iterations: int = 2000, seed: int = 0,
-                 from_street: int = 3):
+                 from_street: int = 3, cap_pot: bool = False):
         assert from_street in (2, 3)
         self.iterations = iterations
         self.from_street = from_street
+        # cap_pot: forbid our own DOUBLE_POT overbets in the subgame. Unsafe
+        # re-solving trusts the blueprint's opponent model, so a large bet
+        # against an out-of-model opponent (e.g. Slumbot) is dangerous; the
+        # capstone run showed ext+resolve regressing -777 mbb/hand from
+        # exactly this. Opponent actions keep full legality (they are modeled).
+        self.cap_pot = cap_pot
         self.rng = random.Random(seed)
 
     def resolve(self, shadow, our_hole, opp_range) -> dict[str, float]:
@@ -147,6 +154,8 @@ class SubgameResolver:
             if state.is_terminal():
                 return state.utility(update_player)
             actions = state.legal_actions()
+            if self.cap_pot and state.to_act == our_seat:
+                actions = [a for a in actions if a != DOUBLE_POT]
             regret, strat, _ = node_for(infoset_key(state, opp_hole), actions)
             sigma = regret_matching(regret)
             if state.to_act == update_player:
