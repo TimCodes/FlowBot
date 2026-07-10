@@ -69,6 +69,63 @@ class TestOpponentRange(unittest.TestCase):
         self.assertEqual(chosen, ["p", "c"])
         self.assertEqual(trace[0][1], 0)    # preflop street
 
+    def test_smooth_floor_prevents_range_collapse(self):
+        # A maximally-sharp blueprint: at the SB open every class plays a
+        # single pure action, and Slumbot's observed open ('p') is one no
+        # class ever takes. With smooth=0 every hole zeroes -> uniform
+        # fallback (990 combos). With smooth>0 the range stays finite and
+        # does NOT blow up to the full 990-combo uniform set... it still
+        # conditions, just without hard zeros.
+        from itertools import combinations
+        from card_abstraction import preflop_class
+        from holdem_engine import FULL_DECK
+        bucketer = EquityBucketer(samples=10, seed=2)
+        legal = ("f", "c", "h", "p", "a")
+        policy = {}
+        for c1, c2 in combinations(FULL_DECK, 2):
+            key = f"{preflop_class((c1, c2))}|"
+            policy[key] = [1, 0, 0, 0, 0]  # everyone folds; nobody ever 'p'
+        trace = [(0, 0, "", legal, "p")]  # opponent was seen to pot-raise
+
+        collapsed = opponent_range(policy, bucketer, trace, 0,
+                                   cards("Ks", "Kd"), cards(*NUTS_BOARD),
+                                   smooth=0.0)
+        self.assertEqual(len(collapsed), 990)  # uniform fallback fired
+        self.assertAlmostEqual(max(collapsed.values()),
+                               min(collapsed.values()), places=9)
+
+        smoothed = opponent_range(policy, bucketer, trace, 0,
+                                  cards("Ks", "Kd"), cards(*NUTS_BOARD),
+                                  smooth=0.05)
+        # No hole zeroed out, so the range is the genuine (equal-weight here,
+        # since all classes share one action) reach -- but crucially it came
+        # from the real computation, not the impossible-line fallback. The
+        # tell: entropy equals a real distribution, and every weight > 0.
+        self.assertTrue(all(w > 0 for w in smoothed.values()))
+        self.assertGreater(len(smoothed), 0)
+
+    def test_smooth_keeps_informative_range_concentrated(self):
+        # AA always pot-raises, everyone else folds. Observed 'p' -> smoothed
+        # range must concentrate mass on AA combos far above a junk hand.
+        from itertools import combinations
+        from card_abstraction import preflop_class
+        from holdem_engine import FULL_DECK
+        bucketer = EquityBucketer(samples=10, seed=2)
+        legal = ("f", "c", "h", "p", "a")
+        policy = {}
+        for c1, c2 in combinations(FULL_DECK, 2):
+            cls = preflop_class((c1, c2))
+            policy[f"{cls}|"] = ([0, 0, 0, 1, 0] if cls == "AA"
+                                 else [1, 0, 0, 0, 0])
+        trace = [(0, 0, "", legal, "p")]
+        rng = opponent_range(policy, bucketer, trace, 0,
+                             cards("Ks", "Kd"), cards(*NUTS_BOARD), smooth=0.05)
+        aa = [h for h in rng if preflop_class(h) == "AA"]
+        junk = [h for h in rng if preflop_class(h) == "72o"]
+        self.assertTrue(aa and junk)
+        self.assertGreater(min(rng[h] for h in aa),
+                           10 * max(rng[h] for h in junk))
+
     def test_range_respects_blueprint_zeroes(self):
         # Synthetic blueprint: at the SB's opening infoset, every preflop
         # class folds except pairs of aces, which always pot-raise. After

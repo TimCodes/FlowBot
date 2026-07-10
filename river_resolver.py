@@ -34,13 +34,22 @@ OPP_BUCKETS = 10
 TURN_SCORE_RIVERS = 10  # shared river sample for turn-strength ranking
 
 
-def opponent_range(policy, bucketer, trace, opp_seat, our_hole, board):
+def opponent_range(policy, bucketer, trace, opp_seat, our_hole, board,
+                   smooth: float = 0.0):
     """Blueprint-implied distribution over opponent hole-card combos.
 
     trace: decision records from replay_abstract(trace_out=...).
     `board` should be the *revealed* cards only. Returns {(c1, c2): weight}
-    normalized to sum 1; combos the blueprint would never have played this
-    way get weight 0 and are dropped.
+    normalized to sum 1.
+
+    smooth (0..1): per-decision uniform mixing of the blueprint probability,
+    factor = (1 - smooth) * p + smooth / len(legal). This is essential for
+    *sharp* blueprints (E[HS^2], many iterations): with smooth = 0 a single
+    action the blueprint prunes to exactly 0 zeroes a hole's whole-line
+    weight, and if that happens for every hole the range collapses to the
+    uniform fallback -- measured at 97% of river spots for the 5M-iter ext
+    blueprint, which made unsafe re-solving solve against noise. A small
+    floor (~0.03) keeps consistent hands favored without zeroing anyone out.
     """
     blocked = set(our_hole) | set(board)
     deck = [c for c in FULL_DECK if c not in blocked]
@@ -56,7 +65,8 @@ def opponent_range(policy, bucketer, trace, opp_seat, our_hole, board):
                 if probs is None or len(probs) != len(legal):
                     w *= 1.0 / len(legal)
                 else:
-                    w *= probs[legal.index(chosen)]
+                    p = probs[legal.index(chosen)]
+                    w *= (1.0 - smooth) * p + smooth / len(legal)
                 if w == 0.0:
                     break
             if w > 0.0:

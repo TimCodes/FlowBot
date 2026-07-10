@@ -276,21 +276,57 @@ run (−119 ± 155). The OLS beta also collapsed (302 vs the usual ~600),
 meaning outcomes decoupled from starting-hand quality — bad postflop
 decisions, not bad deals.
 
-Mechanism (from `--verbose` traces): the resolver's *distributions* look
-reasonable (DOUBLE_POT gets 5–10% weight), but it does an **unsafe**
-re-solve — it trusts the blueprint's model of Slumbot's range. On the ext
-profile its action set includes the 2×-pot overbet, so it occasionally
-fires large mismodeled bets (e.g. b800 with a marginal two pair) that
-Slumbot, being outside our abstraction, punishes. River-resolve on the
-*std* blueprint was safe from this (−157, its best ablation) because its
-largest river bet was pot-sized. So the regression is the interaction of
-unsafe re-solving × a large-bet action — a concrete instance of the
-"safe re-solving needed" caveat. Fix under test: cap the resolver's own
-river bets at pot (`--resolve-cap-pot`), keeping the ext blueprint for
-the pre-river streets where it earns its −119.
+### Root cause (two wrong guesses, then the evidence)
 
-**Best validated configuration to date: the ext blueprint alone, −119
-mbb/hand luck-adjusted.**
+Getting this right took two false starts, both recorded here because the
+dead ends are instructive:
+
+1. *"The overbet."* Guess: the resolver fires 2×-pot bluffs Slumbot
+   punishes. Fix tried: `--resolve-cap-pot` (forbid our own overbets).
+   Result: **still −792** at 2,500 hands. Falsified — and it should have
+   been obvious that capping *our* bets can't help if the problem is us
+   *calling*.
+2. *"Range collapse."* A diagnostic (`diag_range.py`) showed the ext
+   blueprint's opponent-range estimate collapsing to uniform 97% of the
+   time. But that diagnostic had a bug: it rebuilt the shadow with the
+   *std* profile, so the trace's 5-action legal sets didn't match the
+   ext policy's 6-action vectors, forcing a spurious fallback. Fixed to
+   use the blueprint's own profile, the real fallback rate is **0%** and
+   the range is healthy (7.7 bits entropy, same as std's 7.6). A
+   probability-floor "fix" (`--range-smooth`) was kept as an optional
+   defensive knob but is **not** what was wrong.
+
+The decisive step was localizing the loss (`localize.py`) rather than
+guessing. Splitting hands by whether we faced a river decision:
+
+| Config | river-decision hands | no river decision |
+|---|---|---|
+| ext blueprint alone | −601 | −152 |
+| std blueprint + resolve | −708 (≈ its own blueprint) | +41 |
+| **ext blueprint + resolve** | **−1721** | −365 (control, ≈ noise) |
+
+Re-solving is roughly neutral on the std blueprint but ~−1000 mbb worse
+per river hand on the ext blueprint. Inspecting the 12 worst river hands
+(`worst_hands.py`) shows the actual mistake, and it is not betting — it is
+**calling**: every one is us calling a large bet or all-in with a beaten
+hand (ace-high into trip tens for 19,200; one pair into the nut flush on a
+four-flush board; KK into a made straight). The resolver systematically
+**overcalls**.
+
+Mechanism: unsafe re-solving trusts the blueprint's model of the
+opponent's *big-bet* range. The ext blueprint (E[HS²], 6 bet-sizes) can
+construct a far more bluff-heavy polarized betting range than the std
+profile can, so the solve concludes "call wide" — but Slumbot's big bets
+are value-weighted, not bluff-heavy, and it stacks us. The std profile,
+with fewer bet-sizes, can't model as bluffy an opponent, so its re-solve
+overcalls less. This is the textbook failure of *unsafe* subgame
+re-solving; the real fix is **safe re-solving** (a CFR-D / gadget game
+that bounds subgame values by the blueprint), which is substantial and
+remains future work — not a knob.
+
+**Best validated configuration: the ext blueprint alone, −119 mbb/hand
+luck-adjusted. Re-solving does not compose with it until re-solving is
+made safe.**
 
 ## Reference results — HULHE ES-MCCFR (30k iterations, 8 buckets, 50 MC samples, seed 0)
 

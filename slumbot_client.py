@@ -343,13 +343,15 @@ def _post(endpoint: str, data: dict, retries: int = 3) -> dict:
 class SlumbotSession:
     def __init__(self, agent: PolicyAgent, token: str | None = None,
                  verbose: bool = False, harmonic: bool = False,
-                 resolver=None, state_cls: type = NLHEState):
+                 resolver=None, state_cls: type = NLHEState,
+                 range_smooth: float = 0.0):
         self.agent = agent
         self.token = token
         self.verbose = verbose
         self.harmonic = harmonic
         self.resolver = resolver  # river_resolver.SubgameResolver or None
         self.state_cls = state_cls  # action profile the policy was trained on
+        self.range_smooth = range_smooth  # opponent-range uniform floor
 
     def _refresh_token(self, response: dict):
         if response.get("token"):
@@ -362,7 +364,8 @@ class SlumbotSession:
             our_hole = tuple(Card.new(c) for c in response["hole_cards"])
             rng = opponent_range(self.agent.policy, self.agent.bucketer,
                                  trace, 1 - shadow.to_act, our_hole,
-                                 shadow.board_revealed())
+                                 shadow.board_revealed(),
+                                 smooth=self.range_smooth)
             dist = self.resolver.resolve(shadow, our_hole, rng)
             actions = list(dist)
             choice = self.agent.rng.choices(
@@ -442,6 +445,12 @@ def main():
     parser.add_argument("--resolve-cap-pot", action="store_true",
                         help="forbid the resolver's own overbets (safer with "
                              "an ext blueprint vs an out-of-model opponent)")
+    parser.add_argument("--range-smooth", type=float, default=0.0,
+                        help="optional uniform floor on blueprint probs when "
+                             "building the opponent range; defends against "
+                             "over-sharp policies zeroing a hole's whole-line "
+                             "weight (0 = off; not required with matched "
+                             "action profiles)")
     args = parser.parse_args()
 
     keep_system_awake()
@@ -460,7 +469,8 @@ def main():
     state_cls = ACTION_PROFILES[saved.get("actions", "std")]
     session = SlumbotSession(agent, verbose=args.verbose,
                              harmonic=args.translation == "harmonic",
-                             resolver=resolver, state_cls=state_cls)
+                             resolver=resolver, state_cls=state_cls,
+                             range_smooth=args.range_smooth)
 
     total, done = 0, 0
     if args.log_jsonl and os.path.exists(args.log_jsonl):
