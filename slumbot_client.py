@@ -360,13 +360,25 @@ class SlumbotSession:
     def _resolve_subgame(self, shadow, trace, response):
         """Re-solve the turn/river subgame; None on any failure -> blueprint."""
         from river_resolver import opponent_range
+        from safe_resolver import SafeRiverResolver
         try:
             our_hole = tuple(Card.new(c) for c in response["hole_cards"])
             rng = opponent_range(self.agent.policy, self.agent.bucketer,
                                  trace, 1 - shadow.to_act, our_hole,
                                  shadow.board_revealed(),
                                  smooth=self.range_smooth)
-            dist = self.resolver.resolve(shadow, our_hole, rng)
+            if isinstance(self.resolver, SafeRiverResolver):
+                # The gadget needs OUR range too (board blockers only -- the
+                # opponent cannot see our cards).
+                our_range = opponent_range(
+                    self.agent.policy, self.agent.bucketer, trace,
+                    shadow.to_act, (), shadow.board_revealed(),
+                    smooth=self.range_smooth)
+                dist = self.resolver.resolve(shadow, our_hole, rng, our_range,
+                                             self.agent.policy,
+                                             self.agent.bucketer)
+            else:
+                dist = self.resolver.resolve(shadow, our_hole, rng)
             actions = list(dist)
             choice = self.agent.rng.choices(
                 actions, weights=[dist[a] for a in actions])[0]
@@ -445,6 +457,9 @@ def main():
     parser.add_argument("--resolve-cap-pot", action="store_true",
                         help="forbid the resolver's own overbets (safer with "
                              "an ext blueprint vs an out-of-model opponent)")
+    parser.add_argument("--resolve-safe", action="store_true",
+                        help="use the CFR-D gadget re-solver (river only): "
+                             "bounds the opponent's gain over the blueprint")
     parser.add_argument("--range-smooth", type=float, default=0.0,
                         help="optional uniform floor on blueprint probs when "
                              "building the opponent range; defends against "
@@ -461,7 +476,10 @@ def main():
                               mode=saved.get("mode", "ehs"))
     agent = PolicyAgent(saved["policy"], bucketer, seed=args.seed)
     resolver = None
-    if args.resolve:
+    if args.resolve_safe:
+        from safe_resolver import SafeRiverResolver
+        resolver = SafeRiverResolver(args.resolve_iters, args.seed)
+    elif args.resolve:
         from river_resolver import SubgameResolver
         resolver = SubgameResolver(args.resolve_iters, args.seed,
                                    from_street=args.resolve_from,
