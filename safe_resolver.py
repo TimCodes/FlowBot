@@ -141,7 +141,11 @@ class SafeRiverResolver:
 
     from_street = 3  # river only
 
-    def __init__(self, iterations: int = 3000, seed: int = 0):
+    def __init__(self, iterations: int = 12000, seed: int = 0):
+        # The two-range gadget needs FAR more iterations than the unsafe
+        # single-hand solver: at 3k the extracted strategies are
+        # mid-convergence noise (measured live: -2428 mbb/hand on river
+        # hands); by 10-20k they stabilize. Do not lower this for speed.
         self.iterations = iterations
         self.rng = random.Random(seed)
 
