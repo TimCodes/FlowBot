@@ -86,33 +86,58 @@ class _OurBuckets:
         return value / total_w
 
 
-def compute_cbvs(shadow, opp_range, our_buckets, opp_seat):
-    """CBV per opponent hand: best-response value vs our blueprint range.
+def compute_cbvs(shadow, opp_range, our_buckets, opp_seat, mode="br",
+                 policy=None, bucketer=None):
+    """CBV per opponent hand against our blueprint range.
+
+    mode="br": the opponent best-responds (upper values -- but against a
+    weak blueprint these are enormously loose, and a gadget constrained by
+    loose values is free to wander far from good head-to-head play).
+    mode="blueprint": the opponent continues per its own blueprint policy
+    (self-play continuation values -- tight, the DeepStack-style constraint;
+    requires `policy` and `bucketer`).
 
     Opponent hands are grouped into CBV_GROUPS rank percentiles; the group's
-    median rank stands in at showdowns. Returns ({hole: cbv}, {hole: group}).
+    median hand stands in at showdowns and policy lookups. Returns
+    ({hole: cbv}, {hole: group}).
     """
     board = shadow.board
     holes = sorted(opp_range, key=lambda h: _rank(h, board))
     groups = {}
     for i, h in enumerate(holes):
         groups[h] = min(CBV_GROUPS - 1, i * CBV_GROUPS // len(holes))
-    rep_rank = {}
+    rep_rank, rep_label = {}, {}
     for gidx in set(groups.values()):
         members = [h for h in holes if groups[h] == gidx]
-        rep_rank[gidx] = _rank(members[len(members) // 2], board)
+        rep = members[len(members) // 2]
+        rep_rank[gidx] = _rank(rep, board)
+        if mode == "blueprint":
+            rep_label[gidx] = bucketer.label(rep, board, 3)
 
-    def br(state, rank_h, weights):
+    def opp_pi(gidx, hist, legal):
+        probs = policy.get(f"{rep_label[gidx]}|{hist}") if policy else None
+        if probs is None or len(probs) != len(legal):
+            return [1.0 / len(legal)] * len(legal)
+        return probs
+
+    def br(state, gidx, weights):
         if state.is_terminal():
             if state.folded is not None:
                 if state.folded == opp_seat:
                     return -state.contrib[opp_seat]
                 return state.contrib[1 - opp_seat]
-            return our_buckets.showdown_value(rank_h, weights,
+            return our_buckets.showdown_value(rep_rank[gidx], weights,
                                               state.contrib[0])
         legal = state.legal_actions()
-        if state.to_act == opp_seat:  # opponent best-responds
-            return max(br(state.apply(a), rank_h, weights) for a in legal)
+        if state.to_act == opp_seat:
+            children = [br(state.apply(a), gidx, weights) for a in legal]
+            if mode == "br":  # opponent best-responds (loose upper values)
+                return max(children)
+            # mode == "blueprint": opponent continues per its own blueprint
+            # (tight self-play continuation values -- what DeepStack's carried
+            # trunk values approximate).
+            pi = opp_pi(gidx, state.history_str(), legal)
+            return sum(p * c for p, c in zip(pi, children))
         # our node: range plays the blueprint mix, split weights per action
         hist = state.history_str()
         total = 0.0
@@ -124,14 +149,13 @@ def compute_cbvs(shadow, opp_range, our_buckets, opp_seat):
                     w_child[label] = w * p
             if w_child:
                 child_mass = sum(w_child.values())
-                total += child_mass * br(state.apply(a), rank_h, w_child)
+                total += child_mass * br(state.apply(a), gidx, w_child)
         mass = sum(weights.values())
         return total / mass if mass > 0 else 0.0
 
     root_weights = {label: b["weight"]
                     for label, b in our_buckets.by_label.items()}
-    group_cbv = {gidx: br(shadow, rep_rank[gidx], root_weights)
-                 for gidx in rep_rank}
+    group_cbv = {gidx: br(shadow, gidx, root_weights) for gidx in rep_rank}
     return {h: group_cbv[groups[h]] for h in holes}, groups
 
 
@@ -141,12 +165,14 @@ class SafeRiverResolver:
 
     from_street = 3  # river only
 
-    def __init__(self, iterations: int = 12000, seed: int = 0):
+    def __init__(self, iterations: int = 12000, seed: int = 0,
+                 cbv_mode: str = "br"):
         # The two-range gadget needs FAR more iterations than the unsafe
         # single-hand solver: at 3k the extracted strategies are
         # mid-convergence noise (measured live: -2428 mbb/hand on river
         # hands); by 10-20k they stabilize. Do not lower this for speed.
         self.iterations = iterations
+        self.cbv_mode = cbv_mode  # "br" (loose) or "blueprint" (tight)
         self.rng = random.Random(seed)
 
     def resolve(self, shadow, our_hole, opp_range, our_range, policy,
@@ -157,7 +183,9 @@ class SafeRiverResolver:
         root_hist = shadow.history_str()
 
         our_buckets = _OurBuckets(our_range, board, bucketer, policy)
-        cbv, opp_group = compute_cbvs(shadow, opp_range, our_buckets, opp_seat)
+        cbv, opp_group = compute_cbvs(shadow, opp_range, our_buckets, opp_seat,
+                                      mode=self.cbv_mode, policy=policy,
+                                      bucketer=bucketer)
 
         opp_holes = list(opp_range.keys())
         opp_probs = [opp_range[h] for h in opp_holes]

@@ -37,9 +37,11 @@ class ResolvedRiverAgent(PolicyAgent):
     (every action in-engine is already abstract).
     """
 
-    def __init__(self, policy, bucketer, seed=0, iterations=5000):
+    def __init__(self, policy, bucketer, seed=0, iterations=5000,
+                 cbv_mode="br"):
         super().__init__(policy, bucketer, seed=seed)
-        self.resolver = DeepStackResolver(iterations=iterations, seed=seed)
+        self.resolver = DeepStackResolver(iterations=iterations, seed=seed,
+                                          cbv_mode=cbv_mode)
 
     def act(self, state):
         if state.street != 3:
@@ -76,6 +78,7 @@ def main():
     ap.add_argument("--blueprint", default="hunl_blueprint_ext.pkl")
     ap.add_argument("--hands", type=int, default=1000)
     ap.add_argument("--resolve-iters", type=int, default=5000)
+    ap.add_argument("--cbv-mode", choices=("br", "blueprint"), default="br")
     ap.add_argument("--seed", type=int, default=0)
     args = ap.parse_args()
 
@@ -85,7 +88,8 @@ def main():
     state_cls = ACTION_PROFILES[saved.get("actions", "std")]
     resolved = ResolvedRiverAgent(saved["policy"], bucketer,
                                   seed=args.seed,
-                                  iterations=args.resolve_iters)
+                                  iterations=args.resolve_iters,
+                                  cbv_mode=args.cbv_mode)
     vanilla = PolicyAgent(saved["policy"], bucketer, seed=args.seed + 1)
 
     rng = random.Random(args.seed)

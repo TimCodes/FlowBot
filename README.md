@@ -113,11 +113,45 @@ P1 vs bet: folds J, calls Q 0.335 (≈1/3), calls K 1.000
   sanity (AA ≫ 72o five-way; five-way < heads-up equity), trainer smoke
   (beats a random table, pruning floor respected), chip conservation.
   Run: `.venv\Scripts\python -m unittest test_nlhe6 -v`
+- `resume_training6.cmd` — detached relaunch for the big blueprint run
+  (2M iters, 12 buckets, resumable checkpoints every 50k).
+- `nlhe6_search.py` — rung 5.5: Pluribus-style real-time depth-limited
+  search. Blueprint plays preflop; postflop the agent re-solves the
+  subgame rooted at the current public state with ES-MCCFR: opponents'
+  hole ranges are reach-weighted by replaying their observed actions
+  through the blueprint, each iteration re-deals unrevealed cards
+  (determinization), the solve is depth-limited to the end of the current
+  street, and at each leaf every live player picks among four continuation
+  strategies — the blueprint, or fold-/call-/raise-biased versions of it
+  (biased action ×5, renormalized) — as a regret-minimized meta-decision.
+  Hero's own hand is fixed ("unsafe" search); range-balanced solving is
+  the documented upgrade.
+  Run: `.venv\Scripts\python nlhe6_search.py --blueprint nlhe6_blueprint_big.pkl --hands 200`
+- `test_nlhe6_search.py` — 13 tests: continuation biasing math, history
+  replay, reach-weighted ranges (raisers weighted onto strong buckets),
+  river solves need no leaf nodes, flop solves create them, determinization
+  card-safety, agent legality end-to-end.
+  Run: `.venv\Scripts\python -m unittest test_nlhe6_search -v`
 
 Evaluation note: there is no 6-max Slumbot, so the metric is mbb/hand vs
 agent pools with the hero rotated through every seat. With 3+ players CFR
 keeps no Nash guarantee (only dominated-strategy elimination), so pool
 results *are* the success criterion, not a proxy for exploitability.
+
+## Reference results — big 6-max blueprint (2M iterations, 12 buckets vs-5-opponent EHS, prune after 20k, seed 0)
+
+```
+iter  100,000:  8,674,615 infosets   vs 5 random  +7507 mbb/hand   vs 5 call  +2097 mbb/hand
+iter  500,000: 24,148,000 infosets   (curves oscillate in the bands below)
+iter 2,000,000: 53,153,572 infosets  vs 5 random band +2400..+17000, vs 5 call band +1600..+13100
+```
+
+11.6 h wall time (~48 iters/s sustained), 2.5 GB policy (`nlhe6_blueprint_big.pkl`),
+5.4 GB trainer state. Unlike heads-up (saturated at 1.4M infosets), the 6-max
+tree was still adding ~15k infosets per 1k iterations at 2M — abstraction
+capacity, not training time, is the binding constraint now. Checkpoint evals
+are 4000 hands and swing by thousands of mbb (6-way 200 BB pots); both pool
+metrics stayed positive from 50k onward.
 
 ## Reference results — 6-max blueprint (10k iterations, 8 buckets vs-5-opponent EHS, prune after 4k, seed 0)
 
@@ -396,16 +430,30 @@ computed against). Result over 1,000 hands: overall −66 (noise), but
 **river-decision hands −4,690 mbb/hand (n=200)**.
 
 **The input-fidelity conclusion was wrong.** A correct safe re-solve can
-only refine against the exact modeled opponent; losing in-engine proves a
-genuine implementation defect in the gadget/CBV/extraction stack that all
-resolver variants share. Score so far: six hypotheses tested, five
-falsified by instrumentation (overbet action, range collapse, gadget
-undertraining, opponent-range input, pot drift), one confirmed-and-then-
-superseded (undertraining was real but not the root cause). The defect
-is now reproducible offline with ground truth — next step is
-micro-verification: tiny river spots solved exactly (vanilla CFR over
-exact hands, no buckets) compared node-by-node against the gadget's
-CBVs, values, and extracted strategy.
+only refine against the exact modeled opponent; losing in-engine proved
+the defect was ours. Score: seven hypotheses instrumented, five falsified
+(overbet action, range collapse, opponent-range input, pot drift, code
+defect), two confirmed (gadget undertraining, and the root cause below).
+
+### Root cause found: CBV slack (2026-07-13)
+
+The safety guarantee is only as tight as its constraint values. Our CBVs
+were **best-response values against a weak blueprint** — enormously loose
+(e.g. +3,280 on a 1,600 pot) — so the "safe" region included terrible
+strategies, and the gadget equilibrium wandered into them. DeepStack's
+constraints are tight because they come from near-equilibrium trunk
+solves. Fix: `cbv_mode="blueprint"` computes **self-play continuation
+values** (the opponent continues per its own blueprint — what DeepStack's
+carried values approximate) instead of BR values. In-engine A/B, same
+1,000 hands and seeds:
+
+| CBV mode | river-decision hands |
+|---|---|
+| br (loose) | −4,690 mbb/hand |
+| blueprint (tight) | **−268 mbb/hand** (≈ mirror-zero within noise) |
+
+The gadget was never broken; its constraints were. Live Slumbot
+validation of ext + DeepStack-resolve with tight CBVs: in progress.
 
 ## Reference results — HULHE ES-MCCFR (30k iterations, 8 buckets, 50 MC samples, seed 0)
 
