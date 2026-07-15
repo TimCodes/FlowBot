@@ -328,6 +328,57 @@ remains future work — not a knob.
 luck-adjusted. Re-solving does not compose with it until re-solving is
 made safe.**
 
+## Safe (gadget) re-solving: implemented, converged, still fails (2026-07-12)
+
+`safe_resolver.py` implements CFR-D-style safe re-solving (Burch et al.
+2014): our range from blueprint reach, per-hand counterfactual values
+(CBV) from a bucketed best response vs our blueprint, and a gadget where
+the opponent chooses Terminate (take CBV) or Follow. The safety property
+verifies offline: opponent BR vs the gadget strategy ≤ blueprint CBVs.
+
+Two live runs, one lesson each:
+
+1. **3k gadget iterations (7,524 hands): −2,428 mbb/hand on river hands.**
+   Diagnosis (`diag_safe.py`): the two-range gadget is ~10× bigger than
+   the unsafe fixed-hand solve, so 3k iterations yields mid-convergence
+   noise (77 overbetting 23% where the blueprint checks 97%). Strategies
+   stabilize by 10–20k iterations. The offline safety test missed it:
+   empty-policy CBVs are generous enough that even noise passes.
+2. **15k iterations, converged (2,500-hand validation):**
+
+```
+   AIVAT-lite:            −695 ± 300 mbb/hand (luck-adj worse than raw)
+   river-decision hands: −2,307 ± 868
+   no river decision:      +152 ± 382   (healthy control)
+```
+
+Converged or not, river re-solving on the ext blueprint loses ~−2,300 on
+river hands vs the blueprint's own −601. Full triangulation:
+
+| River re-solve variant | river-decision hands |
+|---|---|
+| none (ext blueprint alone) | −601 |
+| unsafe | −1,721 |
+| safe, undertrained (3k) | −2,428 |
+| safe, converged (15k) | −2,307 |
+
+**Conclusion: the failure is in the inputs, and no gadget can launder
+them.** All variants share the same range model: opponent hands weighted
+by blueprint reach over the abstract-mapped line. Slumbot does not share
+our abstraction, so that conditioning is systematically wrong — and the
+richer the action set, the sharper (and more wrong) it gets, which is
+why std+resolve was ≈neutral while every ext+resolve variant fails. The
+safety guarantee is *relative to the CBVs*, which are computed under the
+same wrong range: garbage in, guaranteed garbage out. This is exactly
+why DeepStack/Libratus carry trunk-consistent ranges and solve-time
+values through the whole game instead of re-deriving them at the table.
+
+Retrofit paths (all substantial): trunk re-solving from the hand's start
+so ranges stay self-consistent; opponent-model calibration from observed
+Slumbot showdowns; or a DeepStack-style value network. At workstation
+scale the validated recipe stands: **blueprint scale + action richness,
+no decision-time re-solving — ext blueprint alone, −119 mbb/hand.**
+
 ## Reference results — HULHE ES-MCCFR (30k iterations, 8 buckets, 50 MC samples, seed 0)
 
 ```
