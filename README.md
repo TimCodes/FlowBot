@@ -379,6 +379,34 @@ Slumbot showdowns; or a DeepStack-style value network. At workstation
 scale the validated recipe stands: **blueprint scale + action richness,
 no decision-time re-solving — ext blueprint alone, −119 mbb/hand.**
 
+## DeepStack-style re-solving + the controlled experiment that reversed the diagnosis (2026-07-13)
+
+`deepstack_resolver.py` implements the paper's input discipline: the
+opponent's range is **not an input** (full combo set dealt uniformly,
+constrained by CBVs), our range is the only reach estimate (trustworthy
+pre-river), Bayes-updated within the hand by our own solved strategies
+(continual re-solving). Live validation still failed the pre-registered
+kill line (−824 at 1,000 hands; river-decision hands −3,081).
+
+That falsified the "opponent-range input" theory, so a control experiment
+was run (`selfplay_ab.py`): the resolved agent vs the pure blueprint
+**inside our own engine**, where every model input is correct *by
+construction* (the opponent literally plays the blueprint the CBVs are
+computed against). Result over 1,000 hands: overall −66 (noise), but
+**river-decision hands −4,690 mbb/hand (n=200)**.
+
+**The input-fidelity conclusion was wrong.** A correct safe re-solve can
+only refine against the exact modeled opponent; losing in-engine proves a
+genuine implementation defect in the gadget/CBV/extraction stack that all
+resolver variants share. Score so far: six hypotheses tested, five
+falsified by instrumentation (overbet action, range collapse, gadget
+undertraining, opponent-range input, pot drift), one confirmed-and-then-
+superseded (undertraining was real but not the root cause). The defect
+is now reproducible offline with ground truth — next step is
+micro-verification: tiny river spots solved exactly (vanilla CFR over
+exact hands, no buckets) compared node-by-node against the gadget's
+CBVs, values, and extracted strategy.
+
 ## Reference results — HULHE ES-MCCFR (30k iterations, 8 buckets, 50 MC samples, seed 0)
 
 ```
