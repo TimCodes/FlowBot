@@ -508,7 +508,11 @@ def main():
     resolver = None
     if args.resolve_deepstack:
         from deepstack_resolver import DeepStackResolver
-        resolver = DeepStackResolver(args.resolve_iters, args.seed)
+        # cbv_mode="blueprint" (tight self-play values) is the validated
+        # configuration; "br" CBVs are too loose and were the root cause of
+        # the re-solving failures (see README).
+        resolver = DeepStackResolver(args.resolve_iters, args.seed,
+                                     cbv_mode="blueprint")
     elif args.resolve_safe:
         from safe_resolver import SafeRiverResolver
         resolver = SafeRiverResolver(args.resolve_iters, args.seed)
