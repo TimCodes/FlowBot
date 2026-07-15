@@ -12,7 +12,7 @@ verifiable success criterion before moving to the next.
 | 2 | Leduc Hold'em | Tabular CFR / CFR+ / MCCFR (RLCard + OpenSpiel) | ✅ done | Exact exploitability curves via OpenSpiel best response |
 | 3 | Heads-up **limit** Hold'em | External-sampling MCCFR + equity bucketing | ✅ done | Beats baseline agents (mbb/hand); exact exploitability no longer tractable |
 | 4 | Heads-up **no-limit** Hold'em | MCCFR blueprint (f/c/½pot/pot/all-in) + live Slumbot client | ✅ done | **−5.5 mbb/hand vs Slumbot** (1000 hands, 2.5M-iter blueprint); next: 10k+ hands + AIVAT, subgame re-solving |
-| 5 | **6-max** no-limit Hold'em | Pluribus recipe: N-player Linear-MCCFR blueprint + depth-limited search; opponent exploitation | 🟡 blueprint done | Beats agent pool (seat-rotated mbb/hand); next: big run, depth-limited search, AIVAT — survey & plan in [research_6max.md](research_6max.md) |
+| 5 | **6-max** no-limit Hold'em | Pluribus recipe: N-player Linear-MCCFR blueprint (2M iters ✅) + depth-limited search (built, gate in progress); opponent exploitation | 🟡 | Blueprint beats agent pools ✅; search must beat its own blueprint (paired evals) — survey & plan in [research_6max.md](research_6max.md) |
 
 ## Files
 
@@ -125,11 +125,19 @@ P1 vs bet: folds J, calls Q 0.335 (≈1/3), calls K 1.000
   strategies — the blueprint, or fold-/call-/raise-biased versions of it
   (biased action ×5, renormalized) — as a regret-minimized meta-decision.
   Hero's own hand is fixed ("unsafe" search); range-balanced solving is
-  the documented upgrade.
-  Run: `.venv\Scripts\python nlhe6_search.py --blueprint nlhe6_blueprint_big.pkl --hands 200`
-- `test_nlhe6_search.py` — 13 tests: continuation biasing math, history
+  the documented upgrade. Subgame nodes are **warm-started at the
+  blueprint** (regret mass scaled to the root pot): without it, a
+  small-budget solve models opponents as uniform-random and loses to the
+  very blueprint it extends — the first gate eval measured that directly
+  (−9.5k mbb/hand at 200 uniform-start iterations). Warm starting also
+  makes the solver degrade gracefully to blueprint play when the budget
+  is too small to justify a deviation. `--paired` evaluates against a
+  blueprint hero on identical deals so deal luck cancels.
+  Run: `.venv\Scripts\python nlhe6_search.py --blueprint nlhe6_blueprint_big.pkl --hands 2000 --paired`
+- `test_nlhe6_search.py` — 14 tests: continuation biasing math, history
   replay, reach-weighted ranges (raisers weighted onto strong buckets),
-  river solves need no leaf nodes, flop solves create them, determinization
+  river solves need no leaf nodes, flop solves create them, warm-start
+  anchoring (tiny budgets stay at the blueprint), determinization
   card-safety, agent legality end-to-end.
   Run: `.venv\Scripts\python -m unittest test_nlhe6_search -v`
 
@@ -137,6 +145,22 @@ Evaluation note: there is no 6-max Slumbot, so the metric is mbb/hand vs
 agent pools with the hero rotated through every seat. With 3+ players CFR
 keeps no Nash guarantee (only dominated-strategy elimination), so pool
 results *are* the success criterion, not a proxy for exploitability.
+
+## Reference results — search gate (search agent vs 5 copies of its own blueprint, 10k-iter blueprint)
+
+```
+uniform-start, 200 iters:  -9527 mbb/hand (300 hands)   <- regression: solver models opponents as random
+uniform-start sweep @150h: 200: -683   1000: -2344   4000: +927   (all inside +-4000 noise)
+warm-start 20, 200 iters:  -417 mbb/hand (2000 hands, SE ~4700)   <- regression gone
+warm-start 20, 1000 iters: +1973 +- 7519 mbb/hand (800 hands)     <- indistinguishable from zero
+```
+
+Raw table evals carry ~212 BB/hand standard deviation (6-way all-ins), so
+they cannot resolve realistic search gains; the `--paired` common-random-
+numbers eval is the instrument for this gate. Status: search no longer hurts
+(the graceful-degradation property holds); a statistically significant gain
+over the blueprint is still to be demonstrated. This mirrors the rung-4
+finding that re-solving is easy to get subtly wrong — the gate stays honest.
 
 ## Reference results — big 6-max blueprint (2M iterations, 12 buckets vs-5-opponent EHS, prune after 20k, seed 0)
 

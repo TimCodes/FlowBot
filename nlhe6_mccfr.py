@@ -146,15 +146,16 @@ class PolicyAgent6:
 
 def play_table(hero, villains, hands: int, seed: int = 0,
                num_players: int = NUM_PLAYERS,
-               state_factory=deal_nlhe6) -> float:
+               state_factory=deal_nlhe6, per_hand: bool = False):
     """Full-table match: hero rotates through all seats vs n-1 villains.
 
-    Returns the hero's average chips/hand. Seat rotation balances the large
-    positional edge (button vs blinds) the way seat alternation does for HU.
+    Returns the hero's average chips/hand (or the per-hand list when
+    `per_hand` is set, for standard-error reporting). Seat rotation
+    balances the large positional edge the way seat alternation does for HU.
     """
     assert len(villains) == num_players - 1
     rng = random.Random(seed)
-    total = 0
+    results = []
     for h in range(hands):
         hero_seat = h % num_players
         seats = (list(villains[:hero_seat]) + [hero]
@@ -163,5 +164,7 @@ def play_table(hero, villains, hands: int, seed: int = 0,
                               num_players)
         while not state.is_terminal():
             state = state.apply(seats[state.to_act].act(state))
-        total += state.utility(hero_seat)
-    return total / hands
+        results.append(state.utility(hero_seat))
+    if per_hand:
+        return results
+    return sum(results) / hands
