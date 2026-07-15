@@ -476,8 +476,35 @@ carried values approximate) instead of BR values. In-engine A/B, same
 | br (loose) | −4,690 mbb/hand |
 | blueprint (tight) | **−268 mbb/hand** (≈ mirror-zero within noise) |
 
-The gadget was never broken; its constraints were. Live Slumbot
-validation of ext + DeepStack-resolve with tight CBVs: in progress.
+The gadget was never broken; its constraints were. But the live Slumbot
+validation with tight CBVs **still failed the pre-registered kill line**
+(−1,564 raw at 1,000 hands; −981 luck-adjusted; river hands −2,628 ±
+1,932 on a small, very high-variance sample).
+
+### Final verdict on decision-time re-solving (2026-07-13)
+
+Two stacked causes, now cleanly separated by experiment:
+
+1. **Constraint slack** — real, fixed, and proven fixed in-engine
+   (−4,690 → −268 with self-play CBVs). Any future re-solving work must
+   use tight constraint values; BR-vs-weak-blueprint values are vacuous.
+2. **Opponent-model infidelity** — the residual live failure. With tight
+   constraints the solve stays near the blueprint *against the modeled
+   opponent*, but every deviation it does make is priced against a model
+   of Slumbot (blueprint-continuation behavior) that differs from the
+   real thing, and those deviations lose real chips. In-engine best case
+   was parity, meaning there is no upside to pay for that model risk.
+
+**Closed: no re-solving variant beats the plain blueprint against an
+out-of-model opponent at this scale.** The one path that could reopen it
+is an *empirical* opponent model — Slumbot's actual river behavior
+estimated from our ~50k logged hands (with showdown hole cards) — which
+is exploitation rather than equilibrium play, and a natural dissertation
+chapter on its own. The validated agent remains the **ext blueprint
+alone at −119 mbb/hand**; the investigation's product is the method:
+seven instrumented hypotheses, pre-registered kill criteria, in-engine
+controls, and a two-layer root cause that matches why DeepStack carries
+trunk-consistent values instead of re-deriving them at the table.
 
 ## Reference results — HULHE ES-MCCFR (30k iterations, 8 buckets, 50 MC samples, seed 0)
 
