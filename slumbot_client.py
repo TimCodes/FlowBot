@@ -352,6 +352,7 @@ class SlumbotSession:
         self.resolver = resolver  # river_resolver.SubgameResolver or None
         self.state_cls = state_cls  # action profile the policy was trained on
         self.range_smooth = range_smooth  # opponent-range uniform floor
+        self._river_range = None  # continual-resolve own-range posterior
 
     def _refresh_token(self, response: dict):
         if response.get("token"):
@@ -359,10 +360,33 @@ class SlumbotSession:
 
     def _resolve_subgame(self, shadow, trace, response):
         """Re-solve the turn/river subgame; None on any failure -> blueprint."""
+        from deepstack_resolver import DeepStackResolver
         from river_resolver import opponent_range
         from safe_resolver import SafeRiverResolver
         try:
             our_hole = tuple(Card.new(c) for c in response["hole_cards"])
+            if isinstance(self.resolver, DeepStackResolver):
+                # Continual re-solving: our range comes from blueprint reach
+                # at the first river decision (we truly played the blueprint
+                # until now), then from Bayes updates with our own solved
+                # strategies. No opponent range is estimated anywhere.
+                if self._river_range is None:
+                    self._river_range = opponent_range(
+                        self.agent.policy, self.agent.bucketer, trace,
+                        shadow.to_act, (), shadow.board_revealed(),
+                        smooth=self.range_smooth)
+                dist = self.resolver.resolve_deepstack(
+                    shadow, our_hole, self._river_range,
+                    self.agent.policy, self.agent.bucketer)
+                actions = list(dist)
+                choice = self.agent.rng.choices(
+                    actions, weights=[dist[a] for a in actions])[0]
+                self._river_range = self.resolver.posterior_our_range(
+                    shadow, self._river_range, self.agent.bucketer, choice)
+                if self.verbose:
+                    pretty = {a: round(p, 3) for a, p in dist.items()}
+                    print(f"  deepstack resolve: {pretty} -> {choice}")
+                return choice
             rng = opponent_range(self.agent.policy, self.agent.bucketer,
                                  trace, 1 - shadow.to_act, our_hole,
                                  shadow.board_revealed(),
@@ -398,6 +422,7 @@ class SlumbotSession:
         r = _post("new_hand", {"token": self.token} if self.token else {})
         self._refresh_token(r)
         my_pos = r.get("client_pos")
+        self._river_range = None  # continual-resolve state, reset per hand
         while "winnings" not in r or r.get("winnings") is None:
             action = r["action"]
             parsed = parse_action(action)
@@ -460,6 +485,11 @@ def main():
     parser.add_argument("--resolve-safe", action="store_true",
                         help="use the CFR-D gadget re-solver (river only): "
                              "bounds the opponent's gain over the blueprint")
+    parser.add_argument("--resolve-deepstack", action="store_true",
+                        help="DeepStack-style continual river re-solving: "
+                             "no opponent-range input (uniform dealing + CBV "
+                             "constraints), own range tracked through the "
+                             "hand")
     parser.add_argument("--range-smooth", type=float, default=0.0,
                         help="optional uniform floor on blueprint probs when "
                              "building the opponent range; defends against "
@@ -476,7 +506,10 @@ def main():
                               mode=saved.get("mode", "ehs"))
     agent = PolicyAgent(saved["policy"], bucketer, seed=args.seed)
     resolver = None
-    if args.resolve_safe:
+    if args.resolve_deepstack:
+        from deepstack_resolver import DeepStackResolver
+        resolver = DeepStackResolver(args.resolve_iters, args.seed)
+    elif args.resolve_safe:
         from safe_resolver import SafeRiverResolver
         resolver = SafeRiverResolver(args.resolve_iters, args.seed)
     elif args.resolve:
