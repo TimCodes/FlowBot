@@ -319,6 +319,39 @@ class SearchAgent6:
         return self.rng.choices(actions, weights=probs)[0]
 
 
+def paired_eval(policy, bucketer, hands, search_iters, warm, seed):
+    """Common-random-numbers gate eval: per hand, play the identical deal
+    twice -- once with a blueprint hero, once with the search hero -- using
+    *fresh per-hand agents with per-hand seeds*. Persistent agents desync
+    their rng streams after the first divergent hand, which silently
+    destroys the pairing (measured: paired SE ~= unpaired SE). With fresh
+    agents, the two runs are identical until the hero's first postflop
+    search decision, so hands the hero never searches are exact
+    zero-difference pairs. Returns the per-hand difference list."""
+    from nlhe6_engine import NUM_PLAYERS
+    diffs = []
+    for h in range(hands):
+        base = (seed * 1_000_003 + h) * 1009  # per-hand int seed family
+        deal = random.Random(base).sample(FULL_DECK, 2 * NUM_PLAYERS + 5)
+        hero_seat = h % NUM_PLAYERS
+        outcome = []
+        for hero_kind in ("blueprint", "search"):
+            if hero_kind == "blueprint":
+                hero = PolicyAgent6(policy, bucketer, seed=base + 1)
+            else:
+                hero = SearchAgent6(policy, bucketer, search_iters,
+                                    seed=base + 1, warm=warm)
+            villains = [PolicyAgent6(policy, bucketer, seed=base + 10 + j)
+                        for j in range(NUM_PLAYERS - 1)]
+            seats = (villains[:hero_seat] + [hero] + villains[hero_seat:])
+            state = deal_nlhe6(tuple(deal))
+            while not state.is_terminal():
+                state = state.apply(seats[state.to_act].act(state))
+            outcome.append(state.utility(hero_seat))
+        diffs.append(outcome[1] - outcome[0])
+    return diffs
+
+
 def main():
     parser = argparse.ArgumentParser(
         description="Depth-limited search agent vs a blueprint table")
@@ -328,8 +361,8 @@ def main():
     parser.add_argument("--warm", type=float, default=20.0,
                         help="blueprint warm-start mass (0 disables)")
     parser.add_argument("--paired", action="store_true",
-                        help="difference against a blueprint hero on the "
-                             "same deals (deal luck cancels)")
+                        help="per-hand paired eval vs a blueprint hero on "
+                             "identical deals (deal luck cancels)")
     parser.add_argument("--seed", type=int, default=0)
     args = parser.parse_args()
 
@@ -343,23 +376,20 @@ def main():
           f"{bp['buckets']} buckets, {bp['iterations']:,} training iters",
           flush=True)
 
-    def table(hero):
-        # Fresh villains with identical seeds each run, so paired runs see
-        # the same deals (play_table draws once per hand) and the same
-        # villain rng streams until trajectories diverge.
-        villains = [PolicyAgent6(policy, bucketer, seed=args.seed + 1 + j)
-                    for j in range(5)]
-        return play_table(hero, villains, args.hands, seed=args.seed,
-                          per_hand=True)
-
     start = time.perf_counter()
-    results = table(SearchAgent6(policy, bucketer, args.search_iters,
-                                 seed=args.seed, warm=args.warm))
     label = f"search({args.search_iters}, warm={args.warm})"
     if args.paired:
-        base = table(PolicyAgent6(policy, bucketer, seed=args.seed + 99))
-        results = [s - b for s, b in zip(results, base)]
-        label += " minus paired blueprint hero"
+        results = paired_eval(policy, bucketer, args.hands,
+                              args.search_iters, args.warm, args.seed)
+        zero = sum(1 for r in results if r == 0)
+        label += f" minus paired blueprint hero ({zero}/{len(results)} exact ties)"
+    else:
+        villains = [PolicyAgent6(policy, bucketer, seed=args.seed + 1 + j)
+                    for j in range(5)]
+        hero = SearchAgent6(policy, bucketer, args.search_iters,
+                            seed=args.seed, warm=args.warm)
+        results = play_table(hero, villains, args.hands, seed=args.seed,
+                             per_hand=True)
     elapsed = time.perf_counter() - start
     n = len(results)
     mean = sum(results) / n
