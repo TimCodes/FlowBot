@@ -12,7 +12,7 @@ verifiable success criterion before moving to the next.
 | 2 | Leduc Hold'em | Tabular CFR / CFR+ / MCCFR (RLCard + OpenSpiel) | ✅ done | Exact exploitability curves via OpenSpiel best response |
 | 3 | Heads-up **limit** Hold'em | External-sampling MCCFR + equity bucketing | ✅ done | Beats baseline agents (mbb/hand); exact exploitability no longer tractable |
 | 4 | Heads-up **no-limit** Hold'em | MCCFR blueprint (f/c/½pot/pot/all-in) + live Slumbot client | ✅ done | **−5.5 mbb/hand vs Slumbot** (1000 hands, 2.5M-iter blueprint); next: 10k+ hands + AIVAT, subgame re-solving |
-| 5 | **6-max** no-limit Hold'em | Pluribus recipe: N-player Linear-MCCFR blueprint (2M iters ✅) + depth-limited search (built, gate in progress); opponent exploitation | 🟡 | Blueprint beats agent pools ✅; search must beat its own blueprint (paired evals) — survey & plan in [research_6max.md](research_6max.md) |
+| 5 | **6-max** no-limit Hold'em | Pluribus recipe: N-player Linear-MCCFR blueprint (2M iters ✅) + warm-started depth-limited search ✅ | 🟡 5.1–5.5 done | Blueprint beats agent pools ✅; **search beats its own blueprint: +2220 ± 497 mbb/hand paired, 4.5 SE** ✅; next: exploitation layer (5.6) — survey & plan in [research_6max.md](research_6max.md) |
 
 ## Files
 
@@ -170,11 +170,14 @@ small bp, 4000 iters, warm  5: +2855 ± 1271 mbb/hand  (600 hands,  586 ties)  2
 big bp,   1000 iters, warm 20: +1144 ± 1161 mbb/hand  (400 hands,  392 ties)  n.s.
 ```
 
-Consistent positive sign across three configurations; the headline number
-rests on the 32 divergent (big-pot) hands, so a fresh-seed replication is
-the remaining step before the gate is called passed. Note the contrast with
-the heads-up rung-4 verdict (re-solving closed at parity): the 6-max search
-carries the leaf-continuation mechanism and is measured in-engine, where
+Fresh-seed replication (seed 31): +1782 ± 614 mbb/hand over 2500 hands
+(2451 ties, 2.9 SE). Pooled across the two seeds: **+2220 ± 497 mbb/hand,
+4.5 SE — the 5.5 gate is passed**: warm-started depth-limited search with
+the four biased continuations beats the blueprint it extends. Open items:
+significance on the *big* blueprint (trend positive at 400 hands), and the
+range-balanced ("safe") variant. Note the contrast with the heads-up rung-4
+verdict (re-solving closed at parity): the 6-max search carries the
+leaf-continuation mechanism and is measured in-engine, where
 opponent-model infidelity — the HU killer — does not apply.
 
 ## Reference results — big 6-max blueprint (2M iterations, 12 buckets vs-5-opponent EHS, prune after 20k, seed 0)
