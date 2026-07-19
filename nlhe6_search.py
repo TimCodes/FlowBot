@@ -96,13 +96,16 @@ def replay_decisions(state):
     return nodes
 
 
-def opponent_ranges(state, blueprint, hero):
+def opponent_ranges(state, blueprint, hero, modulators=None):
     """Reach-weighted hole-pair range for each live opponent.
 
     Weight(hole) = product over the opponent's observed actions of the
-    blueprint probability of that action given `hole`. Ranges are kept
-    independent per opponent (joint card-removal is handled at sampling
-    time); hero's cards and the revealed board are excluded.
+    modeled probability of that action given `hole` -- the blueprint,
+    optionally reshaped per seat by `modulators` (rung 5.6 exploitation:
+    a call-station's modeled range stays wide because its modeled fold
+    probability is tiny). Ranges are kept independent per opponent (joint
+    card-removal is handled at sampling time); hero's cards and the
+    revealed board are excluded.
     """
     revealed = set(state.board_revealed())
     blocked = revealed | set(state.holes[hero])
@@ -115,6 +118,7 @@ def opponent_ranges(state, blueprint, hero):
         if seat == hero or state.folded[seat]:
             continue
         seat_nodes = [(st, ch) for st, ch in decisions if st.to_act == seat]
+        mod = modulators.get(seat) if modulators else None
         weights = []
         for hole in pairs:
             w = 1.0
@@ -125,9 +129,11 @@ def opponent_ranges(state, blueprint, hero):
                 key = f"{seat}|{label}|{st.history_str()}"
                 p = blueprint.policy.get(key)
                 if p is None or len(p) != len(actions):
-                    w *= 1.0 / len(actions)
-                else:
-                    w *= p[actions.index(ch)]
+                    p = [1.0 / len(actions)] * len(actions)
+                if mod is not None:
+                    facing = int(max(st.contrib) > st.contrib[seat])
+                    p = mod(p, actions, st.street, facing)
+                w *= p[actions.index(ch)]
                 if w == 0.0:
                     break
             weights.append(w)
@@ -150,22 +156,37 @@ class SubgameSolver:
     the very blueprint it started from.
     """
 
-    def __init__(self, state, blueprint, hero, seed=0, warm=20.0):
+    def __init__(self, state, blueprint, hero, seed=0, warm=20.0,
+                 modulators=None):
         self.root = state
         self.blueprint = blueprint
         self.hero = hero
         self.root_street = state.street
         self.rng = random.Random(seed)
         self.nodes: dict[str, Node] = {}
-        self.ranges = opponent_ranges(state, blueprint, hero)
+        self.modulators = modulators or {}
+        self.ranges = opponent_ranges(state, blueprint, hero,
+                                      modulators=self.modulators)
         self.live = [i for i in range(state.n) if not state.folded[i]]
         self.warm = warm
         self.pot = sum(state.contrib)
 
+    def _probs(self, state):
+        """Modeled policy at a node: the blueprint, reshaped by the acting
+        seat's tendency modulator when one is provided (rung 5.6). The hero
+        seat never has a modulator, so its prior stays the blueprint."""
+        probs = self.blueprint.probs(state)
+        mod = self.modulators.get(state.to_act)
+        if mod is not None:
+            me = state.to_act
+            facing = int(max(state.contrib) > state.contrib[me])
+            probs = mod(probs, state.legal_actions(), state.street, facing)
+        return probs
+
     def _make_node(self, state, actions):
         node = Node(actions)
         if self.warm > 0:
-            probs = self.blueprint.probs(state)
+            probs = self._probs(state)
             node.regret_sum = [self.warm * self.pot * p for p in probs]
             node.strategy_sum = [self.warm * p for p in probs]
         return node
@@ -291,7 +312,7 @@ class SubgameSolver:
     def _rollout(self, state, cont, traverser):
         while not state.is_terminal():
             actions = state.legal_actions()
-            probs = self.blueprint.probs(state)
+            probs = self._probs(state)
             bias = CONTINUATIONS[cont.get(state.to_act, 0)]
             w = biased_probs(probs, actions, bias)
             state = state.apply(self.rng.choices(actions, weights=w)[0])
@@ -313,10 +334,16 @@ class SearchAgent6:
             return self.fallback.act(state)  # Pluribus: blueprint preflop
         solver = SubgameSolver(state, self.blueprint, hero=state.to_act,
                                seed=self.rng.randrange(1 << 30),
-                               warm=self.warm)
+                               warm=self.warm,
+                               modulators=self._modulators(state))
         solver.solve(self.search_iters)
         actions, probs = solver.root_strategy()
         return self.rng.choices(actions, weights=probs)[0]
+
+    def _modulators(self, state):
+        """Per-seat opponent-model hooks; the base agent models nobody.
+        ExploitSearchAgent6 (rung 5.6) overrides this."""
+        return None
 
 
 def paired_eval(policy, bucketer, hands, search_iters, warm, seed):

@@ -160,10 +160,21 @@ def play_table(hero, villains, hands: int, seed: int = 0,
         hero_seat = h % num_players
         seats = (list(villains[:hero_seat]) + [hero]
                  + list(villains[hero_seat:]))
+        # Stable ids for opponent modeling: villain list index, hero None.
+        identities = [None if s is hero else villains.index(s)
+                      for s in seats]
+        for seat_i, agent in enumerate(seats):
+            begin = getattr(agent, "begin_hand", None)
+            if begin is not None:
+                begin(seat_i, identities)
         state = state_factory(rng.sample(FULL_DECK, 2 * num_players + 5),
                               num_players)
         while not state.is_terminal():
             state = state.apply(seats[state.to_act].act(state))
+        for agent in seats:
+            observe = getattr(agent, "observe_hand", None)
+            if observe is not None:
+                observe(state)
         results.append(state.utility(hero_seat))
     if per_hand:
         return results
