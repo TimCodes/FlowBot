@@ -157,10 +157,25 @@ warm-start 20, 1000 iters: +1973 +- 7519 mbb/hand (800 hands)     <- indistingui
 
 Raw table evals carry ~212 BB/hand standard deviation (6-way all-ins), so
 they cannot resolve realistic search gains; the `--paired` common-random-
-numbers eval is the instrument for this gate. Status: search no longer hurts
-(the graceful-degradation property holds); a statistically significant gain
-over the blueprint is still to be demonstrated. This mirrors the rung-4
-finding that re-solving is easy to get subtly wrong — the gate stays honest.
+numbers eval is the instrument for this gate. Two harness bugs had to die
+first (persistent villains desync their rng streams after one divergent
+hand; Python 3.11+ rejects tuple seeds) — with per-hand fresh agents the
+pairing produces ~98% exact ties and cuts the SE from ~5500 to ~850 mbb.
+
+Properly paired results (search minus blueprint hero, identical deals):
+
+```
+small bp, 1000 iters, warm 20: +3055 ±  848 mbb/hand (1500 hands, 1468 ties)  3.6 SE
+small bp, 4000 iters, warm  5: +2855 ± 1271 mbb/hand  (600 hands,  586 ties)  2.2 SE
+big bp,   1000 iters, warm 20: +1144 ± 1161 mbb/hand  (400 hands,  392 ties)  n.s.
+```
+
+Consistent positive sign across three configurations; the headline number
+rests on the 32 divergent (big-pot) hands, so a fresh-seed replication is
+the remaining step before the gate is called passed. Note the contrast with
+the heads-up rung-4 verdict (re-solving closed at parity): the 6-max search
+carries the leaf-continuation mechanism and is measured in-engine, where
+opponent-model infidelity — the HU killer — does not apply.
 
 ## Reference results — big 6-max blueprint (2M iterations, 12 buckets vs-5-opponent EHS, prune after 20k, seed 0)
 
