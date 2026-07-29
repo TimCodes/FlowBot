@@ -12,7 +12,7 @@ verifiable success criterion before moving to the next.
 | 2 | Leduc Hold'em | Tabular CFR / CFR+ / MCCFR (RLCard + OpenSpiel) | ✅ done | Exact exploitability curves via OpenSpiel best response |
 | 3 | Heads-up **limit** Hold'em | External-sampling MCCFR + equity bucketing | ✅ done | Beats baseline agents (mbb/hand); exact exploitability no longer tractable |
 | 4 | Heads-up **no-limit** Hold'em | MCCFR blueprint (f/c/½pot/pot/all-in) + live Slumbot client | ✅ done | **−5.5 mbb/hand vs Slumbot** (1000 hands, 2.5M-iter blueprint); next: 10k+ hands + AIVAT, subgame re-solving |
-| 5 | **6-max** no-limit Hold'em | Pluribus recipe: N-player Linear-MCCFR blueprint (2M iters ✅) + warm-started depth-limited search ✅ | 🟡 5.1–5.5 done | Blueprint beats agent pools ✅; **search beats its own blueprint: +2220 ± 497 mbb/hand paired (4.5 SE), confirmed on the big blueprint at +1889 ± 669** ✅; next: exploitation layer (5.6) — survey & plan in [research_6max.md](research_6max.md) |
+| 5 | **6-max** no-limit Hold'em | Pluribus recipe: N-player Linear-MCCFR blueprint (2M iters) + warm-started depth-limited search + tendency-model exploitation | ✅ 5.1–5.6 done | Blueprint beats agent pools ✅; **search beats its own blueprint +2220 ± 497 mbb/hand paired (4.5 SE; big blueprint +1889 ± 669)** ✅; **exploitation adds +7450 ± 3634 vs call-stations with zero collapse vs blueprints (+26 ± 150)** ✅ — survey & plan in [research_6max.md](research_6max.md) |
 
 ## Files
 
@@ -181,6 +181,23 @@ search variant. Note the contrast with the heads-up rung-4
 verdict (re-solving closed at parity): the 6-max search carries the
 leaf-continuation mechanism and is measured in-engine, where
 opponent-model infidelity — the HU killer — does not apply.
+
+## Reference results — exploitation gates (rung 5.6, frozen-model paired evals, 600 hands, 10k-iter blueprint)
+
+```
+vs 5 call-stations: exploit minus plain search +7450 ± 3634 mbb/hand (2.05 SE, 438/600 ties)
+vs 5 blueprints:    exploit minus plain search   +26 ±  150 mbb/hand (597/600 ties)
+```
+
+Both pre-registered criteria met: the tendency-modeled search adds ~7.5
+BB/hand against call-stations on top of plain search (significant at the
+one-sided 5% level; a longer confirmation run would tighten the 2.05 SE),
+and against the blueprint pool the model correctly goes inert — it observes
+blueprint-like frequencies, λ stays small in the sparse postflop contexts,
+and 597/600 hands are exact ties. Exploitation without collapse, as the
+RNR-style λ-cap intends. Model summaries from warmup confirm perfect
+detection: the call-station's contexts read fold 0.00 / call 1.00 / raise
+0.00 at every street.
 
 ## Reference results — big 6-max blueprint (2M iterations, 12 buckets vs-5-opponent EHS, prune after 20k, seed 0)
 
