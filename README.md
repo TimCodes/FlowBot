@@ -518,6 +518,46 @@ validation with tight CBVs **still failed the pre-registered kill line**
 (−1,564 raw at 1,000 hands; −981 luck-adjusted; river hands −2,628 ±
 1,932 on a small, very high-variance sample).
 
+## Empirical Slumbot model (2026-07-13)
+
+`slumbot_model.py` estimates Slumbot from every logged hand: **79,596
+hands, ~300k action observations, 18,661 scored showdowns** (exact
+strength percentile vs all 990 opposing combos on each board). Saved as
+`slumbot_model.pkl` with per-cell counts so consumers can
+confidence-weight (Data-Biased Response) instead of trusting sparse cells.
+
+Headline tendencies (action model — dense, unbiased):
+
+```
+preflop facing a raise:  fold 19%  raise 56%  call 24%   (very 3-bet heavy)
+flop    facing a bet:    fold 46%  raise  9%  call 45%
+turn    facing a bet:    fold 47%  raise  7%  call 46%
+river   facing a bet:    fold 53%  raise 11%  call 36%
+```
+
+River strength by Slumbot's line (showdown sample — biased: bluffs that
+fold us out never show down, so these OVERSTATE value-weighting):
+
+```
+checked  (n=9547): mean pct 52%   top-20% hands 14%
+called   (n=1901): mean pct 68%   top-20% hands 30%   bottom-30%  1%
+bet_big  (n=4514): mean pct 63%   top-20% hands 37%
+overbet  (n=2480): mean pct 66%   top-20% hands 58%   bottom-30% 26%
+all-in   (n= 120): mean pct 81%   top-20% hands 72%
+```
+
+Two conclusions land immediately. First, **the overcall post-mortem is
+now empirical fact**: Slumbot's overbets/all-ins are strongly
+value-weighted (58–72% top-quintile even before bias correction), so
+every resolver that modeled them as bluff-heavy was calling into the
+nuts. Second, the most promising exploit lever is the **river fold rate:
+53% vs our bets** — above the break-even fold rate for both half-pot
+(33%) and pot-sized (50%) bluffs — with the caveat that it is
+conditioned on our historical (value-leaning) betting ranges. Next step:
+Restricted-Nash-Response training against this model with the
+exploitation dial p, evaluated on the three-axis frontier (vs Slumbot
+live, in-engine exploitability, vs our own blueprint pool).
+
 ### Final verdict on decision-time re-solving (2026-07-13)
 
 Two stacked causes, now cleanly separated by experiment:
